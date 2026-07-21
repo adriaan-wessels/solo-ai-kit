@@ -1,0 +1,145 @@
+# Concrete example of the generic-ci.yml skeleton, filled in for a real
+# Flutter project (Sortomate). Not a template to fill placeholders into —
+# read it alongside generic-ci.yml to see one real instantiation of the same
+# shape: lint/analyze before tests, a CI-only placeholder for a git-ignored
+# asset the build expects, coverage upload, and compile-only smoke jobs for
+# platforms the main test job doesn't cover. Copy the parts that transfer,
+# skip the parts that don't (e.g. the specific job comments below reference
+# this project's own issue numbers as history — that history won't transfer,
+# only the pattern).
+#
+# Kept verbatim from the source project, including its inline comments, since
+# those comments are themselves useful documentation of *why* each guard
+# exists (a real regression each one prevents recurring).
+
+name: Unit & Widget Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # explicit job-level `name` so the PR checks list shows "Unit & Widget
+  # Tests" instead of the bare job id `test` — this matters when more than
+  # one workflow has a job literally id'd `test`; without a distinct name the
+  # Checks UI shows two rows both labelled "test", reading as a duplicate run
+  # of the same job when they're actually two different workflows.
+  test:
+    name: Unit & Widget Tests
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.5'
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # .env is git-ignored (holds secrets) but declared as a Flutter asset
+      # in pubspec.yaml, so a clean CI checkout lacks it and `flutter
+      # analyze` fails with asset_does_not_exist. Unit/widget tests override
+      # providers and never hit the real backend, so an empty file is enough
+      # here.
+      - name: Create placeholder .env (absent in CI)
+        run: touch .env
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run unit & widget tests (with coverage)
+        run: flutter test --coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/lcov.info
+          retention-days: 30
+
+  # compile-only Android smoke. CI never assembled the APK, so Android-only
+  # breaks (a bad Gradle/manifest/native-widget-layout change) shipped
+  # undetected with a fully green unit suite more than once. This job
+  # ASSEMBLES a debug APK (no signing, no device, no emulator) purely to
+  # catch that break class. Keep it OFF the required-checks list until it's
+  # proven stable (a cold Gradle/Android-SDK build is ~3-5min and can hit an
+  # occasional network blip); promote to required once reliable.
+  build-apk:
+    name: Android APK compile smoke
+    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Flutter's Android Gradle build needs JDK 17 (AGP). Pin it explicitly
+      # so the job doesn't depend on whatever default JDK the runner image
+      # ships.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.5'
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Same reason as the test job: .env is git-ignored but declared as a
+      # Flutter asset, so a clean checkout needs a placeholder to bundle.
+      - name: Create placeholder .env (absent in CI)
+        run: touch .env
+
+      - name: Build debug APK (compile smoke — no signing, no device)
+        run: flutter build apk --debug
+
+  # production-config web compile smoke. Without this, the only `flutter
+  # build web` in CI might be an instrumented/test-config build that's also
+  # path-filtered to a subset of PRs — so a pure-UI PR could break the real
+  # production web build undetected. Same break-class as the APK smoke
+  # above, applied to the other release target. This job mirrors the real
+  # production build command exactly (same defines the release script uses),
+  # in particular WITHOUT any test-only auto-login/instrumentation define —
+  # those must stay unset in production builds so a test-only code path
+  # doesn't ship in the release bundle.
+  # Keep OFF the required-checks list until proven stable; promote to
+  # required once reliable (the APK-smoke playbook).
+  build-web:
+    name: Web compile smoke
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.5'
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Same reason as the test/build-apk jobs: .env is git-ignored but
+      # declared as a Flutter asset, so a clean checkout needs a placeholder
+      # to bundle. This is a compile-only smoke — no real backend
+      # connectivity is exercised — so an empty file is enough.
+      - name: Create placeholder .env (absent in CI)
+        run: touch .env
+
+      # PRODUCTION build — mirrors the real build script exactly. Adjust the
+      # --dart-define(s) below to match your actual production build command;
+      # the point is this job and the release script must never drift apart.
+      - name: Build web (compile smoke — production config)
+        run: flutter build web --dart-define=OAUTH_REDIRECT_URL=https://example.com

@@ -1,0 +1,61 @@
+# Generic CI skeleton for the solo-ai-playbook model.
+#
+# This is intentionally toolchain-agnostic — fill in the <PLACEHOLDER> spots
+# for whatever language/framework the project uses. See
+# templates/ci/flutter-test.yml.example for one filled-in, real-world
+# instance of this same shape.
+#
+# Design notes this skeleton assumes (keep these when you fill it in):
+#  - The job name shown here (`name:` under the job) is what branch
+#    protection's required-status-check setting matches against — give it a
+#    stable, human-readable name, not the bare job id, so the Checks UI and
+#    the branch-protection config both read clearly.
+#  - Lint/analyze runs before tests so a fast, cheap failure surfaces first.
+#  - Any git-ignored config/secret file the build depends on (env files,
+#    local config) needs a CI-only placeholder step — a clean CI checkout
+#    won't have it. NEVER put a real secret in this file; use repo/organization
+#    Actions secrets (`${{ secrets.NAME }}`) for anything that needs a real value.
+
+name: <PLACEHOLDER: e.g. "Test">
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: <PLACEHOLDER: human-readable job name — matches branch protection's required check>
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up toolchain
+        # <PLACEHOLDER: e.g. actions/setup-node@v4, actions/setup-python@v5,
+        # subosito/flutter-action@v2 — pin an exact version/channel, don't
+        # float on "latest".>
+        run: echo "PLACEHOLDER - set up the language toolchain here"
+
+      - name: Install dependencies
+        run: echo "PLACEHOLDER - e.g. npm ci / pip install -r requirements.txt / flutter pub get"
+
+      # <PLACEHOLDER: if the build needs a git-ignored env/config file (e.g. a
+      # .env asset a framework expects to exist even if empty), create a
+      # placeholder here so a clean checkout doesn't fail on a missing file.
+      # Never write a real secret value in this step.>
+
+      - name: Lint / analyze
+        run: echo "PLACEHOLDER - the fast, cheap check that should fail first"
+
+      - name: Run tests
+        run: echo "PLACEHOLDER - the unit/widget test command; add --coverage or equivalent if you want a coverage artifact"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: <PLACEHOLDER: coverage output path>
+          retention-days: 30
