@@ -274,6 +274,17 @@ cost more than it returned:
   the full suite on a weekly schedule in addition to path-filtered PR runs so
   drift still gets caught even between triggering changes.
 
+- **Mixing personal backup data into a shareable kit repo.** A repo meant to
+  be shared or published (a starter kit, a template, this document) needs to
+  stay generalized — no project-specific facts, no personal state. It's easy
+  to violate this by accident: e.g. a "back up my agent config" script that
+  commits into the *kit's own* working tree quietly turns a shareable repo
+  into a leak of whatever it just backed up (in this project's case,
+  cross-project memory files spanning several unrelated clients). Keep the
+  two concerns in physically separate repos from the start — see "State
+  backup" below — rather than relying on remembering to scrub one out of the
+  other before every publish.
+
 ---
 
 ## Day-one bootstrap
@@ -340,3 +351,40 @@ writing raw testing notes, answering decision pop-ups, approving UI mockups
 before they ship, and applying schema changes to a live, populated database.
 No amount of automation should try to remove these five — they're where the
 founder's judgment is actually the product.
+
+---
+
+## State backup (two-repo model)
+
+This kit is shaped to be shared: generalized, placeholder-driven, no
+project-specific or personal content. The correction-capture memory loop
+(practice 3) is the opposite of that by nature — it's your actual global
+`CLAUDE.md` and the real per-project memory files it indexes, which can span
+several unrelated projects (client work, personal projects, whatever else
+you're running through the same agent setup). That content has real value as
+a backup and zero business being in a repo meant for others to read.
+
+So the backup lives in a **second, separate, private local repo** —
+`claude-state`, a sibling of this kit's own repo — never inside the kit
+itself. `scripts/backup-claude-state.ps1` writes only into that repo:
+
+```powershell
+# One-time setup (the script deliberately never does this for you, so a
+# mistyped path can't silently start committing into the wrong place):
+New-Item -ItemType Directory -Path "..\claude-state" -Force
+git -C "..\claude-state" init
+# set git identity in that repo if you don't have a global one
+
+# Every time you want a fresh snapshot:
+.\scripts\backup-claude-state.ps1
+```
+
+Each run copies the global `CLAUDE.md` and every `~/.claude/projects/*/memory/`
+directory into `claude-state/`, then makes one dated commit there (skipped if
+nothing changed since the last run). `-BackupRepoPath` overrides the default
+sibling location if you keep your backups somewhere else; `-DryRun` previews
+without touching anything.
+
+Treat `claude-state` as private — don't publish it the way you'd publish a
+kit repo built from this one. It's a personal/operational backup, not a
+deliverable.
