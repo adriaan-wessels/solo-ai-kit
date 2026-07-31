@@ -24,6 +24,23 @@
     separate local repo instead of committing into the kit's own working
     tree. Keep that backup repo private; this script does not publish it.
 
+    OPTIONAL EXTRA PATHS: if $ClaudeHome\backup-extra-paths.txt exists (one
+    absolute directory path per line; blank lines and #-comments skipped),
+    each listed directory is mirrored into the backup repo too, under
+    repos\<parent-dir-name>--<leaf-dir-name>\ (e.g. a project's git-ignored
+    .claude\ automation - skills, workflows, hooks, settings - can ride
+    along without this kit ever naming that project). A 'worktrees'
+    subdirectory anywhere under an extra path is skipped (a Claude Code
+    git-worktree convention, not backup-worthy state), and any file with a
+    token/secret/password/api-key/bearer value assignment (or an AKIA/
+    private-key pattern) is skipped and reported rather than copied. The
+    config file itself lives outside both repos and is never committed by
+    this script.
+
+    EXIT CODE: 0 on success (including a no-op run when nothing changed);
+    nonzero if the backup repo isn't set up yet, or a git command fails - so
+    a scheduled/unattended run can be monitored on exit code alone.
+
     Written for Windows PowerShell 5.1 - no `&&`/`||`, no ternary, no
     null-coalescing/null-conditional operators.
 
@@ -67,6 +84,41 @@ function Write-Info {
     Write-Host $Message
 }
 
+function Copy-FilteredTree {
+    # Recursively mirrors $Source into $Destination, skipping:
+    #   - any directory literally named 'worktrees' (a Claude Code
+    #     git-worktree convention, not project-specific - without this an
+    #     extra path that uses worktrees balloons the backup with full
+    #     duplicate checkouts)
+    #   - any file whose content looks secret-bearing per $SecretPattern
+    # This is the safety net for the optional extra-paths mechanism below:
+    # unlike the curated CLAUDE.md/memory copies above, an extra path can be
+    # any directory, so it gets scanned before anything is mirrored into a
+    # repo this script (or a caller) may later push.
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [string]$SecretPattern = '',
+        [string[]]$ExcludeDirNames = @('worktrees')
+    )
+    if (-not (Test-Path $Destination)) {
+        New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    }
+    Get-ChildItem -Path $Source -Force | ForEach-Object {
+        if ($_.PSIsContainer) {
+            if ($ExcludeDirNames -contains $_.Name) {
+                Write-Info ('  skip dir (excluded by name): {0}' -f $_.FullName)
+                return
+            }
+            Copy-FilteredTree -Source $_.FullName -Destination (Join-Path $Destination $_.Name) -SecretPattern $SecretPattern -ExcludeDirNames $ExcludeDirNames
+        } elseif ($SecretPattern -and (Select-String -Path $_.FullName -Pattern $SecretPattern -Quiet -ErrorAction SilentlyContinue)) {
+            Write-Info ('  SKIP (looks secret-bearing, review by hand): {0}' -f $_.FullName)
+        } else {
+            Copy-Item -Path $_.FullName -Destination (Join-Path $Destination $_.Name) -Force
+        }
+    }
+}
+
 $KitRoot = Split-Path -Parent $PSScriptRoot
 
 if ([string]::IsNullOrWhiteSpace($BackupRepoPath)) {
@@ -101,7 +153,7 @@ if (-not $backupRepoIsGit) {
     Write-Info ('    git -C "{0}" config user.email "<your email>" # if not already set globally' -f $BackupRepoPath)
     Write-Info 'Then re-run this script.'
     if (-not $DryRun) {
-        return
+        exit 1
     }
     Write-Info ''
     Write-Info '(continuing in DRY RUN to show what the rest of this run would do)'
@@ -155,25 +207,79 @@ if (-not (Test-Path $SourceProjectsDir)) {
 }
 
 # ---------------------------------------------------------------------------
+# 2b. Optional extra paths - machine-local, absent = no-op.
+#     Lets git-ignored per-project Claude automation (skills/, workflows/,
+#     hooks/, settings...) ride along in the same backup without this
+#     shareable kit ever naming a specific project. One directory path per
+#     line in $ExtraPathsFile; blank lines and lines starting with # are
+#     skipped. Each listed directory is mirrored under
+#     repos\<parent-dir-name>--<leaf-dir-name>\ (leading dots stripped from
+#     the leaf, so ...\MyProject\.claude becomes repos\MyProject--claude\).
+# ---------------------------------------------------------------------------
+$ExtraPathsFile = Join-Path $ClaudeHome 'backup-extra-paths.txt'
+# Requires a key-like word immediately followed by : or = and a value of some
+# length, not just the bare word - a bare "secret" or "token" match is far too
+# common in ordinary prose/CSS ("design tokens", "handles secrets") to be a
+# usable signal on its own.
+$secretPattern = '(?i)((password|passwd|pwd|api[_-]?key|secret|token|bearer)\s*[:=]\s*\S{6,}|AKIA[0-9A-Z]{16}|-----BEGIN[A-Z ]*PRIVATE KEY-----)'
+if (-not (Test-Path $ExtraPathsFile)) {
+    Write-Info ('SKIP - no extra-paths config at {0} (optional)' -f $ExtraPathsFile)
+} else {
+    $extraPaths = Get-Content -Path $ExtraPathsFile | Where-Object {
+        $_.Trim() -ne '' -and -not $_.Trim().StartsWith('#')
+    }
+    foreach ($rawPath in $extraPaths) {
+        $path = $rawPath.Trim().TrimEnd('\', '/')
+        if (-not (Test-Path $path -PathType Container)) {
+            Write-Info ('SKIP - extra path not found (or not a directory): {0}' -f $path)
+            continue
+        }
+        $leaf = (Split-Path -Leaf $path).TrimStart('.')
+        $parentName = Split-Path -Leaf (Split-Path -Parent $path)
+        $destName = '{0}--{1}' -f $parentName, $leaf
+        $dest = Join-Path $BackupRepoPath ('repos\{0}' -f $destName)
+        if ($DryRun) {
+            Write-Info ('[DRY RUN] would mirror {0} -> {1} (excluding worktrees dirs + secret-looking files)' -f $path, $dest)
+        } else {
+            if (Test-Path $dest) {
+                Remove-Item -Path $dest -Recurse -Force
+            }
+            Write-Info ('mirroring {0} -> {1}' -f $path, $dest)
+            Copy-FilteredTree -Source $path -Destination $dest -SecretPattern $secretPattern
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
 # 3. Commit (inside the backup repo, never inside the kit repo)
 # ---------------------------------------------------------------------------
+$trackedPaths = @('CLAUDE.md', 'projects')
+if (Test-Path (Join-Path $BackupRepoPath 'repos')) {
+    $trackedPaths += 'repos'
+}
+
 if ($DryRun) {
     Write-Info ''
-    Write-Info ('[DRY RUN] would run: git -C "{0}" add CLAUDE.md projects' -f $BackupRepoPath)
+    Write-Info ('[DRY RUN] would run: git -C "{0}" add {1}' -f $BackupRepoPath, ($trackedPaths -join ' '))
     Write-Info ('[DRY RUN] would run: git -C "{0}" commit -m "chore: backup Claude config + memory snapshot (<date>)"' -f $BackupRepoPath)
     return
 }
 
 if (-not $backupRepoIsGit) {
-    # Already reported as a manual step above; nothing to commit.
+    # Already reported (and exited nonzero) as a manual step above.
     return
 }
 
 Push-Location $BackupRepoPath
 try {
-    git add CLAUDE.md projects
+    git add -- $trackedPaths
+    if ($LASTEXITCODE -ne 0) {
+        Write-Info ''
+        Write-Info 'git add failed - check git status by hand.'
+        exit 1
+    }
 
-    $pendingChanges = git status --porcelain -- CLAUDE.md projects
+    $pendingChanges = git status --porcelain -- $trackedPaths
     if ([string]::IsNullOrWhiteSpace($pendingChanges)) {
         Write-Info ''
         Write-Info 'Nothing changed since the last snapshot - no commit made.'
@@ -187,6 +293,7 @@ try {
         } else {
             Write-Info ''
             Write-Info 'git commit failed - check git status by hand.'
+            exit 1
         }
     }
 } finally {
