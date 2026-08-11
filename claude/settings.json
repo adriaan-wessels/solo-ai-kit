@@ -12,6 +12,19 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "bash .claude/hooks/subagent-stall-check.sh",
+            "timeout": 20,
+            "statusMessage": "Checking for a stalled subagent…"
+          }
+        ]
+      }
     ]
   }
 }

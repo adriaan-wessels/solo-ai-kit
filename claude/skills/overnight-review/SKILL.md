@@ -189,13 +189,15 @@ export/import">.
      your own stack and product — the shape (a fixed set of independent,
      named lenses, each producing evidence-based findings) is what matters. -->
 
-The lenses are deliberately **not** equal in weight. Give the deepest
-reasoning to whichever lenses map to this project's worst-outcome and to its
-current release gate — for a data-heavy product that usually means lens 4;
-for a product whose open blocker list clusters somewhere specific, that
-cluster's lens. Decide the weighting from the tracker, not from habit, and
-say what you chose. Lenses don't own findings exclusively: if a lens sees
-something outside its angle, report it and let dedup sort it out.
+The lenses are deliberately **not** equal in weight. The lens covering this
+project's **worst possible outcome** (for a data-heavy product that's lens 4
+— losing the user's data) **always runs at maximum depth, unconditionally,
+every run** — that risk does not shrink just because its open-issue count
+does. Give a second deep slot to whichever lens the tracker currently points
+at (the cluster holding the release gate), and **re-derive that second pick
+each run** from the tracker rather than assuming last run's choice still
+holds. Say what you chose. Lenses don't own findings exclusively: if a lens
+sees something outside its angle, report it and let dedup sort it out.
 
 1. **Security** — authz/access-control, secrets, injection, any encryption/
    escrow model in use.
@@ -431,8 +433,10 @@ review the product at that tier:
   effort:** adversarial verification, security and data-integrity reasoning,
   the regression-catch probe, the "does this feel off / off-philosophy" calls,
   the normative-vs-descriptive splits, and final synthesis/triage. Escalate
-  effort further for the one or two lenses carrying this project's
-  worst-outcome and current release gate.
+  to your very highest effort tier for the **worst-outcome lens
+  unconditionally, every run, regardless of tracker state**, and for the
+  run's second deep lens — the one the tracker-driven weighting (workstream
+  B's intro) named this run, re-derived each time, never assumed.
 - **Mechanical sweeps -> a faster/cheaper tier:** enumerating files, running
   suites, collecting logs, parsing CI timings, resolving issue states for the
   freshness reconcile.
@@ -455,6 +459,15 @@ integrated report:
 - P0/P1/P2 findings with evidence and filed-issue links, deduped, grouped by
   workstream/lens, with a "highest-leverage 10" call-out across everything.
 - Regression-catch probe results per critical path (protected/unprotected).
+- **Prevention-layer classification:** tag every confirmed finding with the
+  earliest layer that could realistically have caught it — a pre-merge
+  review, a CI/lint gate, a test at a named level, spec/decision hygiene, or
+  **audit-only** (no cheaper layer exists) — and report the distribution.
+  This is the feedback loop that turns detection into prevention: a
+  recurring escape class is a candidate for a new standing gate. Keep it
+  honest: "audit-only" is a legitimate answer, and a proposed layer that
+  would cost more than the class it prevents is a finding against the
+  proposal, not for it.
 - **Prompt-freshness reconcile:** what you corrected in this brief in-place,
   and what needs a founder call (normative changes — never self-applied).
 - **Kit promotion candidates:** lessons worth pushing back into this kit or

@@ -537,9 +537,19 @@ if ($script:ManualSteps.Count -gt 0) {
 }
 
 Write-Host ''
+Write-Host 'Post-bootstrap checklist (web UI - these have no gh/API surface; see kit README - "Post-bootstrap checklist"):' -ForegroundColor DarkGray
+if ($null -ne $projectNumber) {
+    $workflowsUrl = ('https://github.com/users/{0}/projects/{1}/workflows' -f $Owner, $projectNumber)
+} else {
+    $workflowsUrl = ('https://github.com/users/{0}/projects' -f $Owner)
+}
+Write-Host ('  - Project board -> "..." menu -> Workflows: enable the built-in automations - "Auto-add to project" (new items from the repo) PLUS "Item added to project" with Status = Backlog (auto-add alone leaves new items with NO status), and item closed / PR merged -> Done. No PAT, no Actions minutes, zero GraphQL quota - prefer these over scripted board moves. {0}' -f $workflowsUrl)
+Write-Host ('  - Repo Settings -> Security: enable Dependabot alerts + security updates, then copy the kit''s templates/ci/dependabot.yml.example to .github/dependabot.yml and set its ecosystems to match the stack. https://github.com/{0}/settings/security_analysis' -f $RepoFullName)
+
+Write-Host ''
 Write-Host 'Always manual, by design (see kit README - "What stays manual, always"):' -ForegroundColor DarkGray
 Write-Host '  - Using the product day to day.'
 Write-Host '  - Writing the raw testing notes.'
 Write-Host '  - Answering decision pop-ups.'
 Write-Host '  - Approving UI mockups before they ship.'
-Write-Host '  - Applying schema changes to a live, populated database.'
+Write-Host '  - Approving schema changes to a live, populated database (early on, applying them by hand too).'

@@ -17,6 +17,11 @@
 <PLACEHOLDER: one-line product description — what it is, who it's for, what
 platform(s) it targets.>
 
+> **Current state lives on the tracker, not here:** <PLACEHOLDER: link to
+> the project board>. The issues are the spec; issue comments are the
+> decision-of-record. If status prose ever creeps into this file, delete it
+> in favor of the board — it rots by construction.
+
 ---
 
 ## Commands
@@ -142,5 +147,9 @@ E2E layer:
      coordinator/worker split (standing rule 3) does NOT apply to you as a
      coordinator — you ARE the worker. Do all your work yourself in the
      foreground; never spawn sub-agents or background your own tests/builds.
-     End your turn only with the deliverable or a named blocker, never to
-     'wait for a notification.'"*
+     If a long call auto-backgrounds when it hits the harness's time cap,
+     the harness's 'you will be notified when it completes' promise is FALSE
+     for you — no notification ever reaches a worker; immediately keep
+     foreground-polling the backgrounded call's output across further short
+     calls. End your turn only with the deliverable or a named blocker,
+     never to 'wait for a notification.'"*

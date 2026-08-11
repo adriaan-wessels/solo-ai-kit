@@ -4,8 +4,9 @@ A portable playbook and starter kit for running a software project as **one
 founder acting as editor, with AI coding agents as staff**: the agents
 maintain the tracker, write the code, verify it, and merge on green CI. The
 founder's recurring job shrinks to five things — use the product, dump raw
-testing notes, answer decision pop-ups, approve UI mockups, and apply live-DB
-schema changes.
+testing notes, answer decision pop-ups, approve UI mockups, and approve
+live-DB schema changes (early on, applying them by hand too — see practice 7
+for how that gate matures).
 
 This kit was extracted from a live process review of the Sortomate project
 (2026-07-21). In that project the model produced: 30 PRs merged in under 5
@@ -33,8 +34,12 @@ narrow:
    when a call genuinely needs a human (product direction, taste, risk
    tolerance) — not a status update, a question with options.
 4. **Approve UI mockups** — before a visual change ships, not after.
-5. **Apply live-DB DDL** — schema changes against a hosted database are the
-   one category of "irreversible against real data" that stays manual.
+5. **Approve live-DB DDL** — schema changes against a hosted database are
+   the one category of "irreversible against real data" where a human hand
+   stays on the trigger. Early on that means applying the SQL by hand; as
+   the project matures it means approving the migration file before
+   automation applies it (practice 7). The judgment is the permanent manual
+   part, not the keystrokes.
 
 Everything else — writing code, writing tests, triaging bugs, grooming the
 backlog, running the release, merging PRs, keeping docs in sync — is agent
@@ -61,6 +66,17 @@ the end of a session. When any written status (a handover doc, a stale
 paragraph, a summary) disagrees with the board, **the board wins** — fix the
 prose, don't trust it over the tracker.
 
+Two disciplines keep the tracker usable once issue volume grows. **File every
+issue with a milestone** — default new findings into a designated
+inbox/bucket milestone (e.g. "Code health / tech debt") that gets a triage
+pass at each periodic review (see "Periodic reviews" below), so nothing is
+ever unmilestoned and the unsorted pile is explicit rather than invisible.
+And before composing any decision menu for the founder, **retrieve the
+existing decision-of-record properly**: search issue *bodies*, not just
+titles, using the founder's own vocabulary, and sweep discussion tickets and
+umbrella/spec issues — that's where open questions get parked, and they
+rarely keyword-match.
+
 *Why:* a spec that lives in chat transcripts or a person's memory doesn't
 survive a context switch, a new agent picking up the thread, or the founder
 being away for a day. A spec that lives in the tracker is queryable,
@@ -78,6 +94,12 @@ works, and deliberately does not say what's in progress this week. Status
 belongs in the tracker (practice 1); the moment `CLAUDE.md` starts
 accumulating "current sprint" paragraphs, it starts going stale the way every
 status doc does, and agents start trusting stale prose over the live board.
+
+The strongest form of this rule — adopted after a weaker "keep the status
+section fresh" version failed repeatedly — is that the doc carries a
+**pointer to the board and nothing else**, plus an explicit instruction that
+any status prose creeping back in should be deleted on sight: it rots by
+construction, so the only stable amount of it is zero.
 
 *Why:* it is the cheapest possible onboarding cost for a new agent, and it
 compounds — every gotcha documented once is a gotcha no agent re-discovers
@@ -187,13 +209,20 @@ job:
 - **Live DDL stays founder-applied** — a schema change against a real,
   populated database is exactly the kind of hard-to-reverse, real-state
   change that warrants a human hand on the trigger, even when the SQL itself
-  was agent-drafted.
+  was agent-drafted. Version the schema from day one (a baseline plus
+  versioned migration files — hand-applied ad-hoc DDL is a bootstrap smell);
+  as the project matures, the founder gate shifts from *typing SQL at a live
+  database* to *approving the migration file* before automation applies it.
 - **"Don't relitigate" strategy records** — once the founder has made a
   considered call on a strategic question (what the product is, what it
   isn't, a rejected direction), that decision is written down and agents are
   told explicitly not to re-open it without new cause. This is a gate in the
   other direction: it protects founder judgment that's already been spent
-  from being silently re-spent by an agent re-deriving a worse answer.
+  from being silently re-spent by an agent re-deriving a worse answer. The
+  lightweight per-issue mechanism is an **on-issue fence comment** — a note
+  on the specific issue saying "building this re-opens a strategy decision;
+  take it back to a planning session first" — rather than a special
+  milestone or label taxonomy for fenced work.
 - **One explicit exit-gate issue per phase** — a roadmap phase (e.g. "ready
   to daily-drive the alpha") has exactly one issue that represents "is this
   phase actually done," decided by the founder, rather than an implicit
@@ -204,7 +233,87 @@ actually made (bad) or burns founder attention on calls that don't need it
 (also bad, just less obviously). Naming the specific gates keeps both failure
 modes rare.
 
-### 8. Deliberate omissions
+### 8. Recurring automation, shaped by cost
+
+Scheduled workflows are where an agent-run project quietly accumulates both
+its safety net and its bill. The patterns that have earned their keep:
+
+- **Consolidate heavy CI lanes onto nightly schedules** — integration
+  suites, platform artifact builds, full E2E — off the per-PR path, each
+  with **auto-file-an-issue-on-red** so a failing nightly is a tracked bug by
+  morning, not a red run nobody saw. Per-PR CI keeps only the fast, gating
+  layer. (On the project this kit was extracted from, the first measured
+  day after this consolidation — 2026-08-10 — cut CI spend by more than
+  half against the prior baseline, with the nightlies still catching two
+  real breaks that same day; longer-run numbers were still pending when
+  this was written.)
+- **A daily cost tripwire** — a scheduled job that estimates yesterday's CI
+  spend and files/updates an issue past a threshold. Alert-only: pair it
+  with a billing budget that *alerts*, never one that hard-stops usage —
+  a mid-sprint spending halt costs more than the overage it prevents.
+- **Keepalive pings** for infrastructure that pauses when idle (free-tier
+  databases and the like) — one authenticated read on a weekly cron, failing
+  loudly so a broken keepalive is a red run rather than silence.
+- **Destructive scheduled jobs default to dry-run** — anything that prunes
+  test accounts, old artifacts, or stale data reports what it *would* delete
+  by default and requires an explicit confirm string to actually do it.
+- **Prefer the platform's built-in automations over scripted equivalents** —
+  e.g. GitHub Projects' own auto-add and closed→Done workflows instead of
+  GraphQL scripts moving cards: no token, no CI minutes, no API quota. Treat
+  API rate quota as a shared, exhaustible resource across every agent
+  working the project; keep scripts only for transitions the built-ins can't
+  express.
+- **A release freshness gate** — each release cut runs machine-checkable
+  probes (a version marker on every deployed surface) plus a short printed
+  checklist for the surfaces a probe can't reach, so "we cut a release" and
+  "users are actually running it" never silently diverge.
+
+*Why:* recurring automation is the part of the system nobody is looking at
+by definition — the failure modes are silent (a schedule that stopped
+firing, a cron deleting the wrong thing, a bill compounding daily). Shaping
+every scheduled job to fail loudly, delete nothing by default, and cost as
+little as its signal allows is what makes "unattended" safe.
+
+### 9. Parallel-agent hygiene
+
+Running several coding agents concurrently against one repo/host adds
+failure modes that single-agent work never surfaces:
+
+- **Ban `git stash` in every parallel-builder prompt.** `refs/stash` lives
+  in the shared `.git`, not the worktree — concurrent builders doing stash
+  push/pop silently swap each other's WIP. Use a scratch WIP commit plus
+  soft reset instead. Same class: never force-move a branch you didn't
+  create (a sibling worktree may have it checked out), and throwaway repro
+  files go in a worktree, never the shared checkout.
+- **Don't run full local test gates in parallel.** All agents on one host
+  share one toolchain lock; concurrent full gates starve each other into
+  timeouts. In a multi-builder wave: targeted suites locally, full suite in
+  CI.
+- **Assume stalled workers fire no notification.** A hung or quietly-stopped
+  background agent looks identical to a working one from the outside. Run a
+  periodic broadcast-message sweep over the wave's agent IDs — it doubles
+  as stall *detector* and mass *resume*. A stop-hook that scans a finished
+  subagent's final message for the "waiting for a notification…" signature
+  catches the most common trap mechanically — but note it surfaces the
+  warning to the *user*, who then has the coordinator resume the worker;
+  hook output is not injected into the model's context, so detection is
+  automatic and the resume is not (see `claude/hooks/`). And once a
+  worker-prompt boilerplate demonstrably prevents/recovers the trap,
+  **freeze its wording** — don't paraphrase a proven incantation.
+- **Bound concurrency of heavyweight agent workflows.** Two large parallel
+  fleets can trip provider-side throttling that collapses whole waves;
+  bound the fan-out, and keep a resume path for a half-dead run.
+- **After any host crash or reboot, probe server-side truth** (open PRs,
+  branches, releases) before trusting any remembered agent status —
+  background agents die silently and their claimed state dies with them.
+
+*Why:* each of these was learned as a multi-hour loss that produced no error
+message — cross-contaminated WIP, waves that starved themselves, workers
+that stalled for a night unnoticed. Parallelism pays for itself only when
+the coordination failures are engineered out rather than debugged per
+incident.
+
+### 10. Deliberate omissions
 
 Things this model explicitly does **not** adopt, on purpose:
 
@@ -224,6 +333,79 @@ Things this model explicitly does **not** adopt, on purpose:
 humans or set expectations for outside contributors. Adopting them anyway
 "because that's what a real project has" is pure overhead here — see the
 anti-patterns below for what that overhead costs in practice.
+
+---
+
+## Periodic reviews — the process reviews itself
+
+The practices above are themselves a system, and systems drift: vendors
+re-gate features, CI bills creep, docs diverge from the tracker, automation
+briefs go stale against reality. Two recurring review passes keep the
+process honest. The cadences given are **defaults a project may tune, not
+mandates** — the low-ceremony rule applies to meta-process too.
+
+### External-tool feature audit (default: quarterly)
+
+Every few months, audit each vendor in the stack (code host, database/BaaS,
+CDN/hosting, error tracking, auth, …) against its **current official
+documentation**:
+
+- One doc-cited research agent per vendor. **Never answer availability or
+  pricing questions from memory** — model knowledge of vendor tiers is stale
+  by construction. Fetch the current docs, and verify plan-gating against
+  the *actual account type in use* (personal vs. org, free vs. paid), not
+  the marketing page's happy path.
+- Each agent reports three lists, with a doc URL per claim: **adopt** (free,
+  fits, do it), **maybe** (useful but plan-gated or needs a decision), and
+  **refuted — do not re-research** (investigated, unavailable or not worth
+  it, with the citation that proves it).
+- Decisions go to the founder as structured pop-up questions; adopted items
+  are filed to the board; quick wins get implemented the same session.
+- Archive the whole thing as a **dated do-not-re-research file** in the
+  project.
+
+The refuted list with citations is the high-value half: it's what stops
+every future session from re-hunting the same dead ends ("can we buy the
+managed merge queue?" — no, see the archive). One pass of this on the source
+project found a zero-config dependency-update gap, free board automations
+nobody had enabled, and the root cause of a live stale-deploy bug.
+
+### Process / best-practices review (default: fortnightly, or scoped pre-milestone)
+
+A recurring pass over the delivery system itself: board hygiene (is the
+inbox milestone triaged, do columns match reality), CI cost against value,
+doc-vs-tracker drift, dependency freshness, and **automation-brief
+freshness** — the automation re-reads its own skill/manual files against
+observed reality, fixes *descriptive* drift in place, and surfaces
+*normative* changes as founder decisions, never self-applied. Each pass also
+emits **kit promotion candidates** report-only: lessons generalized enough
+to move upstream into this kit or the founder's global instructions (see
+`claude/skills/overnight-review`, workstream C2).
+
+Two disciplines make these reviews compound instead of just accumulate:
+
+- **Prevention-layer classification.** Tag every confirmed review finding
+  with the earliest layer that could realistically have caught it — a
+  pre-merge review, a CI/lint gate, a test at a named level, spec/decision
+  hygiene, or **audit-only** (no cheaper layer exists) — and report the
+  distribution. A recurring escape class is a candidate for a new standing
+  gate; "audit-only" is a legitimate answer; and a proposed layer that would
+  cost more than the class it prevents is a finding *against* the proposal.
+- **New process ideas run as trials with a ledger, not adopted as rules.**
+  A candidate practice (say, a pre-merge adversarial-reviewer gate on every
+  PR — promising on the source project, still a trial there, not standard
+  practice) gets a bounded trial with a per-instance ledger: findings,
+  false positives, latency, cost. Then an explicit founder decision:
+  adopt / tune / drop. The same discipline applies to infrastructure
+  buy-vs-rent calls — and **re-run those decisions on post-optimization
+  numbers**: thresholds written down before a cost optimization are stale
+  the moment it lands.
+
+*Why:* without a scheduled look outward (what did the vendors change?) and
+inward (what did our own process quietly become?), the process calcifies
+around the constraints of its first month. The audits are cheap — a few
+agent-hours on a schedule — and each one either finds real money/capability
+on the table or produces citations that permanently stop re-research.
 
 ---
 
@@ -273,6 +455,15 @@ cost more than it returned:
   serialization bottleneck and a source of cross-run contamination), and run
   the full suite on a weekly schedule in addition to path-filtered PR runs so
   drift still gets caught even between triggering changes.
+
+- **Deploying a static-hosted SPA with no cache-control story.** A web app
+  served from a static host/CDN with no explicit cache headers can leave
+  users running a build that's many releases stale — silently, while every
+  fresh check "works on my machine." Set explicit cache headers (long-lived
+  hashed assets, revalidated entrypoint) and version the bootstrap
+  entrypoint from day one; don't rely on a framework's service-worker
+  self-update magic. Corollary for support: a user reporting long-fixed
+  behavior means *suspect a stale client first*.
 
 - **Mixing personal backup data into a shareable kit repo.** A repo meant to
   be shared or published (a starter kit, a template, this document) needs to
@@ -344,13 +535,86 @@ first real issues, running the first testing-notes triage, growing
 `CLAUDE.md`'s gotchas section via real corrections, and so on. Those start
 the moment the first PR does.
 
+### Post-bootstrap checklist (web UI)
+
+A few valuable settings have no `gh`/API surface at all, so the script can't
+do them and they aren't per-run failures either — they're the same short
+list after every bootstrap (the script prints this checklist at the end of
+each run too):
+
+1. **Enable the project board's built-in automations.** Open the new
+   project → `…` menu → *Workflows*: turn on **Auto-add to project** (new
+   issues/PRs from the linked repo) **and** the separate **Item added to
+   project** workflow with its Status set to **Backlog** — auto-add alone
+   only adds items, leaving them with *no* status, so without the second
+   workflow you get a "No status" pile instead of a Backlog column. Also
+   turn on **item closed / PR merged → Done**. (Plan note: Free allows
+   exactly one auto-add workflow per board, Pro five — fine for the kit's
+   single board.) These run with no PAT, no Actions minutes, and zero
+   GraphQL quota — prefer them over scripted board moves for every
+   transition they can express (practice 8), and keep scripts only for what
+   they can't (moves between non-terminal columns).
+2. **Enable Dependabot.** Repo *Settings → Security* (the section GitHub
+   currently labels "Code security"/"Advanced Security" — it moves): turn on
+   **Dependabot alerts** and **security updates**. Then copy
+   `templates/ci/dependabot.yml.example` from this kit to the project's
+   `.github/dependabot.yml` and set its ecosystems to match the stack — the
+   script doesn't copy it automatically precisely because the ecosystem list
+   can't be guessed.
+3. **After the first CI run:** fill the real required-check name into branch
+   protection (also printed as a per-run manual follow-up by the script).
+
+### Platform constraints worth knowing up front
+
+Durable plan-gating facts, recorded once so no future project re-researches
+them. **Verified 2026-08-11 against current vendor docs — re-verify at the
+next tool audit** (see "Periodic reviews"); vendors re-gate features without
+notice.
+
+- **GitHub native merge queue: unavailable to a personal private repo at any
+  price** — it requires an org-owned repo, and for private repos
+  additionally Enterprise Cloud. Consequence: with strict ("require
+  branches to be up to date") branch protection, a green auto-merge-armed PR
+  silently starves as `behind` whenever other PRs land first — GitHub never
+  notifies. With many parallel PRs you must build your own updater (a small
+  "merge train" workflow). Hard-won caveats for that workflow: GitHub's
+  `schedule` cron is best-effort (trigger on `workflow_run` instead), filter
+  to *required* checks or one red non-gating check starves the queue, poll
+  check-run conclusions rather than PR state (`blocked` conflates queued and
+  failed), and pushes made with the default `GITHUB_TOKEN` don't trigger CI
+  (use a scoped PAT for the update-branch push).
+- **Secret scanning / push protection: not available on user-owned private
+  repos** (Enterprise-gated). If you want the guard, run a scanner like
+  `gitleaks` in CI instead.
+- **Larger runners and issue types are org-only.** Plan around the standard
+  runners on a personal account.
+- **Available on personal Free/Pro and worth using:** sub-issues, issue
+  dependencies ("blocked by"), Projects built-in automations, Dependabot,
+  and `gh release create --generate-notes`.
+- **Supabase Free tier has NO automatic server-side backups.** None — bring
+  your own backup path from day one. Database branching is Pro-gated and
+  PITR needs Pro plus paid compute; but CLI migrations, `pg_cron`, Vault,
+  TOTP MFA, and pgTAP are all free. On any Supabase project, adopt **CLI
+  migrations from day one** (`db pull` baseline + versioned migration files,
+  applied by automation after founder approval) — see practice 7's live-DDL
+  gate for how the founder approval fits in.
+- **Google Play / Google OAuth gates:** a personal Play developer account
+  must pass a closed test with 12 opted-in testers over 14 continuous days
+  before production (internal testing doesn't count toward it). A GCP OAuth
+  app using only basic sign-in scopes is exempt from the 100-test-user cap
+  and the 7-day refresh-token expiry — adding any scope beyond those basic
+  sign-in scopes (sensitive or not) silently drops that exemption.
+
 ### What stays manual, always
 
 Independent of tooling, per the operating model above: using the product,
 writing raw testing notes, answering decision pop-ups, approving UI mockups
-before they ship, and applying schema changes to a live, populated database.
-No amount of automation should try to remove these five — they're where the
-founder's judgment is actually the product.
+before they ship, and approving schema changes to a live, populated database
+(early on, applying them by hand too — practice 7 covers how that gate
+matures from typing the SQL to approving the migration file). No amount of
+automation should try to remove these five — they're where the founder's
+judgment is actually the product, and judgment, not keystrokes, is the part
+that stays manual.
 
 ---
 

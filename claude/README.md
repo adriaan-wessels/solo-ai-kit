@@ -18,14 +18,25 @@ Copy-Item -Recurse -Path claude\* -Destination <new-project>\.claude\
 
 ## What's in here
 
-- **`settings.json`** — registers the CI-status stop-hook below. Merge this
-  into the new project's `.claude/settings.json` rather than overwriting one
-  that already exists.
+- **`settings.json`** — registers the two hooks below. Merge this into the
+  new project's `.claude/settings.json` rather than overwriting one that
+  already exists.
 - **`hooks/ci-status.sh`** — a Stop hook that checks the current commit's CI
   runs after a push and surfaces anything non-green. Near-generic as-is; it
   only assumes `git`, `gh`, and a GitHub Actions-style CI. See the comments
   in the file for the exact trigger conditions (only fires within 30 minutes
   of a pushed HEAD, stays silent when everything's green).
+- **`hooks/subagent-stall-check.sh`** — a SubagentStop hook that scans a
+  just-finished subagent's final message for the "waiting for a
+  notification…" stall signature — the worker-side trap in the
+  coordinator/worker split (`templates/CLAUDE.md`, standing rule 3): nothing
+  ever re-invokes a worker that stops to wait, so a worker that ends its
+  turn "waiting" is stalled, not working. When it matches, the hook surfaces
+  a stalled-worker warning — shown to the *user* (hook `systemMessage`
+  output is not injected into the model's context), who then has the
+  coordinator resume that worker with foreground-poll orders. Detection is
+  automatic; the resume is not. It is silent otherwise and never blocks
+  (kit README, practice 9).
 - **`skills/overnight-review/SKILL.md`** — the "AI-native QA cycle" ceremony
   from the kit README (practice 6): a long, mostly-unattended pass that lands
   safe work, gates on the expensive test layer with flake triage, then fans

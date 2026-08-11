@@ -1,0 +1,43 @@
+# Starter Dependabot config — copy to the new project's .github/dependabot.yml
+# and fill in the ecosystems that match the stack.
+#
+# NOT copied automatically by scripts/bootstrap.ps1, on purpose: the ecosystem
+# list below can't be guessed for an empty project, and a wrong guess is a
+# broken config. Copying it is item 2 on the kit README's "Post-bootstrap
+# checklist (web UI)", alongside enabling Dependabot alerts in the repo's
+# security settings. Dependabot itself is free on private personal repos —
+# there is no good reason for a new project to skip it. (The project this kit
+# was extracted from ran for months before a tool audit noticed it had never
+# been enabled at all.)
+#
+# The shape is deliberately minimal, matching the kit's "add process only when
+# earned" stance:
+#   - weekly, not daily — updates batch into one predictable wave;
+#   - minor + patch grouped into a single PR per ecosystem — the noise floor
+#     stays near one PR per ecosystem per week;
+#   - majors arrive as individual PRs — those are the ones that actually
+#     need reading before merge.
+# Tighten (daily, security-only, ignore rules) only when a real need shows up.
+
+version: 2
+updates:
+  # Almost every project wants this one: keeps the pinned versions of GitHub
+  # Actions used in .github/workflows/ current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # One block per language ecosystem the project actually uses. Common
+  # values: "npm", "pub" (Dart/Flutter), "pip", "gradle", "cargo", "gomod",
+  # "nuget". Delete this block if the project has no package manifest yet.
+  - package-ecosystem: "<PLACEHOLDER: e.g. npm / pub / pip / gradle>"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
