@@ -9,7 +9,7 @@
       - every per-project memory/ directory under
         $env:USERPROFILE\.claude\projects\*\memory\
     into a sibling repo (default: ..\claude-state next to this kit), then
-    makes one dated git commit there. This is the practical, portable
+    makes one dated git commit there and pushes it. This is the practical, portable
     version of "the correction-capture memory loop is durable" (kit README,
     practice 3) - a point-in-time backup that survives a machine loss or a
     fresh install, independent of whatever sync/backup the Claude Code app
@@ -63,6 +63,11 @@
 .PARAMETER DryRun
     Print what would be copied and committed without touching anything.
 
+.PARAMETER NoPush
+    Commit the snapshot locally but skip the push. Off by default: a
+    commit that never leaves the machine is not a backup. Use only when
+    deliberately working offline.
+
 .EXAMPLE
     .\backup-claude-state.ps1
 
@@ -74,7 +79,8 @@
 param(
     [string]$ClaudeHome = (Join-Path $env:USERPROFILE '.claude'),
     [string]$BackupRepoPath = '',
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$NoPush
 )
 
 $ErrorActionPreference = 'Stop'
@@ -262,6 +268,9 @@ if ($DryRun) {
     Write-Info ''
     Write-Info ('[DRY RUN] would run: git -C "{0}" add {1}' -f $BackupRepoPath, ($trackedPaths -join ' '))
     Write-Info ('[DRY RUN] would run: git -C "{0}" commit -m "chore: backup Claude config + memory snapshot (<date>)"' -f $BackupRepoPath)
+    if (-not $NoPush) {
+        Write-Info ('[DRY RUN] would run: git -C "{0}" push origin <current-branch>' -f $BackupRepoPath)
+    }
     return
 }
 
@@ -294,6 +303,44 @@ try {
             Write-Info ''
             Write-Info 'git commit failed - check git status by hand.'
             exit 1
+        }
+    }
+
+    # -----------------------------------------------------------------------
+    # 4. Push to the backup remote.
+    #    Committing locally is not a backup: until this runs, every snapshot
+    #    lives only on the machine the backup exists to survive the loss of.
+    #    (Observed 2026-08-15: 12 daily snapshots had accumulated locally
+    #    while the off-machine copy sat 15 days stale.)
+    #    Pushed unconditionally, NOT only when this run made a commit, so an
+    #    accumulated backlog drains on the next run.
+    # -----------------------------------------------------------------------
+    if ($NoPush) {
+        Write-Info ''
+        Write-Info '-NoPush given - snapshot committed locally only.'
+    } else {
+        $hasRemote = git remote
+        if ([string]::IsNullOrWhiteSpace($hasRemote)) {
+            Write-Info ''
+            Write-Info 'No git remote configured - snapshot committed locally only.'
+            Write-Info ('  Add one to make this a real off-machine backup: git -C "{0}" remote add origin <url>' -f $BackupRepoPath)
+        } else {
+            $branch = git rev-parse --abbrev-ref HEAD
+            # No 2>&1 here. git writes its progress ("To <url>", "master ->
+            # master") to stderr even on success; redirecting a native exe's
+            # stderr in PowerShell 5.1 wraps each line in a NativeCommandError
+            # ErrorRecord, which $ErrorActionPreference = 'Stop' then turns
+            # into a terminating error - failing the script on a push that
+            # actually worked. Let stderr pass through and judge by exit code.
+            git push origin $branch
+            if ($LASTEXITCODE -eq 0) {
+                Write-Info ('Pushed {0} to origin.' -f $branch)
+            } else {
+                Write-Info ''
+                Write-Info ('git push failed - the snapshot is committed locally but NOT backed up off-machine.')
+                Write-Info ('  Retry by hand: git -C "{0}" push origin {1}' -f $BackupRepoPath, $branch)
+                exit 1
+            }
         }
     }
 } finally {
