@@ -13,4 +13,4 @@
       behavioural changes (how a feature works, not just its label) still
       need a manual doc edit even when the lint passes. -->
 - [ ] If a test level was intentionally skipped (see Definition of Done in
-      CLAUDE.md), say which and why below — never silent.
+      CLAUDE.md), say which and why below. Do not stay silent about it.

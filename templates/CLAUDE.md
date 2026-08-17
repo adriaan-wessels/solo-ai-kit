@@ -1,33 +1,33 @@
 <!--
-  Skeleton project CLAUDE.md — from the solo-ai-playbook bootstrap kit.
+  Skeleton project CLAUDE.md, from the solo-ai-playbook bootstrap kit.
 
   Fill in every <PLACEHOLDER: ...>. Delete this comment block once done.
 
   RULE THIS FILE FOLLOWS (keep it that way): this is the project's operating
   MANUAL, not a status report. It documents how the codebase reads and how
-  the team works — commands, architecture, conventions, gotchas, standing
-  rules. It never says what's currently in progress; that lives in the issue
+  the team works: commands, architecture, conventions, gotchas, standing
+  rules. It never says what's currently in progress. That lives in the issue
   tracker / project board, which always wins over anything written here. If
   you catch yourself adding a "current sprint" or "as of <date>" status
   paragraph, put it in the tracker instead.
 -->
 
-# <PLACEHOLDER: Project Name> — CLAUDE.md
+# <PLACEHOLDER: Project Name>: CLAUDE.md
 
-<PLACEHOLDER: one-line product description — what it is, who it's for, what
+<PLACEHOLDER: one-line product description: what it is, who it's for, what
 platform(s) it targets.>
 
 > **Current state lives on the tracker, not here:** <PLACEHOLDER: link to
-> the project board>. The issues are the spec; issue comments are the
+> the project board>. The issues are the spec. Issue comments are the
 > decision-of-record. If status prose ever creeps into this file, delete it
-> in favor of the board — it rots by construction.
+> in favor of the board. It rots by construction.
 
 ---
 
 ## Commands
 
 <PLACEHOLDER: fill in as soon as the project has a build system. Keep this
-section runnable-as-written — an agent should be able to copy a line and run
+section runnable-as-written. An agent should be able to copy a line and run
 it with no translation.>
 
 ### Run
@@ -49,10 +49,10 @@ it with no translation.>
 
 ## Architecture
 
-<PLACEHOLDER: a short directory map — where the domain logic lives, where
+<PLACEHOLDER: a short directory map: where the domain logic lives, where
 state/data access lives, where UI lives, where generated code lives (and the
 rule that generated files are never hand-edited if that applies). Keep it a
-map, not a tutorial — enough for an agent to guess the right file on the
+map, not a tutorial. Enough for an agent to guess the right file on the
 first try.>
 
 ```
@@ -80,7 +80,7 @@ infer by reading a lot of code first.>
   Starts empty on purpose. This section grows one entry at a time, each time
   a correction reveals a non-obvious trap in the codebase (a platform quirk,
   a footgun in a dependency, a "looks safe but isn't" pattern). Don't
-  pre-populate it by guessing what might go wrong — only add an entry after
+  pre-populate it by guessing what might go wrong. Add an entry only after
   it's actually gone wrong once. This is the CLAUDE.md-local complement to
   the correction-capture memory loop (see the kit README, practice 3): the
   memory files are the durable, cross-session record; this section is the
@@ -88,24 +88,24 @@ infer by reading a lot of code first.>
   next to the code.
 -->
 
-*(empty — add an entry here the first time a real gotcha bites)*
+*(empty: add an entry here the first time a real gotcha bites)*
 
 ---
 
-## Definition of Done — verification
+## Definition of Done: verification
 
 Every change is verified at the **appropriate level** before its PR is marked
-ready — match the test to the change; don't push everything onto the slow
+ready. Match the test to the change; don't push everything onto the slow
 E2E layer:
 
-1. **Default — unit/widget tests** for logic and UI. Fast, reliable, and
+1. **Default: unit/widget tests** for logic and UI. Fast, reliable, and
    where most coverage belongs.
-2. **E2E — add or update a spec only when** the change adds or alters a
+2. **E2E: add or update a spec only when** the change adds or alters a
    user-facing flow that crosses a real boundary a lower test level can't
    reach (auth, sync, payments, any hosted external service) or a critical
    CRUD/navigation path, and it's actually feasible to drive. E2E is the
-   expensive, brittle layer — reserve it for flows that genuinely need it.
-3. **If neither fits, say so in the PR** — one line on how the change was
+   expensive, brittle layer. Reserve it for flows that genuinely need it.
+3. **If neither fits, say so in the PR:** one line on how the change was
    otherwise verified (manual run, screenshot, static analysis). Declining a
    level is fine *if stated*, never silent.
 
@@ -113,7 +113,7 @@ E2E layer:
 
 ## Standing rules
 
-**IMPORTANT — these override default behaviour:**
+**IMPORTANT.** These override default behaviour:
 
 1. **Verify, don't assert.** Don't claim something works until you've
    actually verified it (tests, on-device/on-screen check, real output). If
@@ -122,7 +122,7 @@ E2E layer:
 2. **The tracker/board wins over any written status.** This file, handover
    notes, and any other prose describing "what's currently happening" are
    secondary to the live issue tracker and project board. When they
-   disagree, trust the board and fix the prose — never the reverse. Issue
+   disagree, trust the board and fix the prose. Never the reverse. Issue
    comments are the decision-of-record: read them before acting on an issue,
    and post decisions there so they persist.
 
@@ -131,30 +131,30 @@ E2E layer:
    worker spawning sub-agents of its own), the two roles behave oppositely
    and must not be confused:
    - **Coordinator (the main thread):** never blocks, never does multi-step
-     work inline. Anything beyond about one tool call — anything needing
-     retries, polling, or shaped like a probe/verification/bulk-op/build —
-     gets handed to a background agent immediately rather than run inline.
-     The coordinator only routes, decides, asks the user, and reports; it
-     never sits in a blocking wait. Post a one-line status and end the turn;
-     completed background work resumes it automatically.
+     work inline. Anything beyond about one tool call, including anything
+     needing retries, polling, or shaped like a probe/verification/bulk-op/
+     build, gets handed to a background agent immediately rather than run
+     inline. The coordinator only routes, decides, asks the user, and
+     reports; it never sits in a blocking wait. Post a one-line status and
+     end the turn; completed background work resumes it automatically.
    - **Worker (every spawned agent):** the opposite. A worker does all of
      its own work in the foreground, never spawns sub-agents of its own, and
      never backgrounds its own tests or builds waiting on a notification
      that (from inside a worker) will never come. A worker ends its turn
      only with the finished deliverable or a named, concrete blocker.
-   - **Worker-prompt boilerplate** — paste this into every worker's prompt
-     so it doesn't inherit the coordinator behavior by default: *"The
+   - **Worker-prompt boilerplate.** Paste this into every worker's prompt so
+     it doesn't inherit the coordinator behavior by default: *"The
      coordinator/worker split (standing rule 3) does NOT apply to you as a
-     coordinator — you ARE the worker. Do all your work yourself in the
+     coordinator: you ARE the worker. Do all your work yourself in the
      foreground; never spawn sub-agents or background your own tests/builds.
      If a long call auto-backgrounds when it hits the harness's time cap,
      the harness's 'you will be notified when it completes' promise is FALSE
-     for you — no notification ever reaches a worker; immediately keep
+     for you: no notification ever reaches a worker; immediately keep
      foreground-polling the backgrounded call's output across further short
      calls. End your turn only with the deliverable or a named blocker,
      never to 'wait for a notification.'"*
 
-4. **Branch hygiene — clean up in the same step you confirm the merge.**
+4. **Branch hygiene: clean up in the same step you confirm the merge.**
    When a PR merges, delete its local branch (and its worktree, if one was
    used) in the same step that verifies the merge. Do not batch the
    cleanup for later. Squash-merge deletes only the remote branch, so
