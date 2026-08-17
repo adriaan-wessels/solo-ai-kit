@@ -1,4 +1,4 @@
-# Generic CI skeleton for the solo-ai-playbook model.
+# Generic CI skeleton for the solo-ai-kit model.
 #
 # This is intentionally toolchain-agnostic — fill in the <PLACEHOLDER> spots
 # for whatever language/framework the project uses. See

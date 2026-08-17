@@ -3,7 +3,7 @@
 # current HEAD, so a red or in-progress CI can't slip by unnoticed.
 #
 # This is the "guardrails that convert founder absence into throughput"
-# piece from the solo-ai-playbook README (practice 5) — it's what makes
+# piece from the solo-ai-kit README (practice 5) — it's what makes
 # "verify CI after pushing" an enforced habit instead of a rule an agent can
 # forget to follow.
 #

@@ -20,7 +20,7 @@ description: >-
 # Overnight integrated review
 
 <!--
-  Generalized from Sortomate's overnight-review skill for the solo-ai-playbook
+  Generalized from Sortomate's overnight-review skill for the solo-ai-kit
   kit. See claude/README.md for how this fits. Every <PLACEHOLDER: ...> below
   needs a real value for this project before the skill is fully useful. The
   surrounding STRUCTURE (ask the write-authority gate -> land safe work -> gate

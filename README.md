@@ -1,6 +1,6 @@
 # Solo Founder + AI Agents: Bootstrap Kit
 
-This kit is a portable playbook and starter set for one operating model:
+This kit is a portable handbook and starter set for one operating model:
 **one founder acts as editor, and AI coding agents act as staff.** The
 agents maintain the tracker, write the code, verify it, and merge on
 green CI. The founder keeps five recurring jobs: use the product, dump
@@ -583,8 +583,8 @@ analogy, and cost more than it returned.
 ### Get the kit
 
 ```powershell
-git clone https://github.com/adriaan-wessels/solo-ai-playbook.git
-cd solo-ai-playbook
+git clone https://github.com/adriaan-wessels/solo-ai-kit.git
+cd solo-ai-kit
 ```
 
 Before running anything, check the prerequisites:

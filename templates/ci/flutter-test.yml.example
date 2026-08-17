@@ -114,7 +114,7 @@ jobs:
   # those must stay unset in production builds so a test-only code path
   # doesn't ship in the release bundle.
   # Keep OFF the required-checks list until proven stable; promote to
-  # required once reliable (the APK-smoke playbook).
+  # required once reliable (the APK-smoke procedure).
   build-web:
     name: Web compile smoke
     timeout-minutes: 20

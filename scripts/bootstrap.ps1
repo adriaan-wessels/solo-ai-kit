@@ -368,7 +368,7 @@ if (Test-Path $gitignorePath) {
 .DS_Store
 Thumbs.db
 
-# Local agent-automation layer - see claude/README.md in the solo-ai-playbook
+# Local agent-automation layer - see claude/README.md in the solo-ai-kit
 # kit for why this stays out of the repo.
 .claude/
 '@
@@ -480,7 +480,7 @@ Write-StepHeader 'Initial commit'
 
 if ($DryRun) {
     Write-DryRunLine ('git -C "{0}" add CLAUDE.md .github .gitignore' -f $ProjectDir)
-    Write-DryRunLine ('git -C "{0}" commit -m "chore: bootstrap project from solo-ai-playbook kit"' -f $ProjectDir)
+    Write-DryRunLine ('git -C "{0}" commit -m "chore: bootstrap project from solo-ai-kit kit"' -f $ProjectDir)
 } else {
     Push-Location $ProjectDir
     try {
@@ -495,7 +495,7 @@ if ($DryRun) {
             Write-SkippedLine 'repo already has at least one commit'
         } else {
             git add CLAUDE.md .github .gitignore
-            git commit -m 'chore: bootstrap project from solo-ai-playbook kit' | Out-Null
+            git commit -m 'chore: bootstrap project from solo-ai-kit kit' | Out-Null
             Write-DoneLine 'created initial commit'
         }
     } finally {

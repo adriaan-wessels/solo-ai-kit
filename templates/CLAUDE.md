@@ -1,5 +1,5 @@
 <!--
-  Skeleton project CLAUDE.md, from the solo-ai-playbook bootstrap kit.
+  Skeleton project CLAUDE.md, from the solo-ai-kit bootstrap kit.
 
   Fill in every <PLACEHOLDER: ...>. Delete this comment block once done.
 

@@ -1,5 +1,5 @@
 // Generalized from Sortomate's issue-triage-to-milestones workflow for the
-// solo-ai-playbook kit. Fill in every <PLACEHOLDER: ...> before running this
+// solo-ai-kit kit. Fill in every <PLACEHOLDER: ...> before running this
 // on a new project — search for the literal string "PLACEHOLDER" to find
 // every spot. The workflow SHAPE (Gather -> Lenses -> Synthesis, one Sonnet
 // digest pass, a fixed panel of Opus-tier lens reviewers, one Opus synthesis
