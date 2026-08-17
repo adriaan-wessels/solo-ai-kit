@@ -131,7 +131,9 @@ if ($null -eq $ghCmd) {
 $gitCmd = Get-Command git -ErrorAction SilentlyContinue
 if ($null -eq $gitCmd) {
     Write-ManualLine 'git not found on PATH. Install git and re-run this script.'
+    $script:GitAvailable = $false
 } else {
+    $script:GitAvailable = $true
     Write-DoneLine ('found git: {0}' -f $gitCmd.Source)
 }
 
@@ -185,10 +187,10 @@ if ($DryRun) {
     Write-Host '*** DRY RUN - no local or remote state will be created or changed ***' -ForegroundColor Yellow
 }
 
-if (-not $script:GhAvailable -or -not $ghAuthed) {
+if (-not $script:GhAvailable -or -not $ghAuthed -or -not $script:GitAvailable) {
     if (-not $DryRun) {
         Write-Host ''
-        Write-Host 'Stopping - gh must be installed and authenticated before this script can automate anything beyond the preview above. Re-run with -DryRun to see the full plan anyway, or fix gh and re-run for real.' -ForegroundColor Red
+        Write-Host 'Stopping - git and gh must both be installed (and gh authenticated) before this script can automate anything beyond the preview above. Re-run with -DryRun to see the full plan anyway, or fix the missing tool and re-run for real.' -ForegroundColor Red
         return
     }
 }

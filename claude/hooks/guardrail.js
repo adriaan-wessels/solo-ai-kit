@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// PreToolUse(Bash) guardrail.
+// PreToolUse(Bash|PowerShell) guardrail: it reads the incoming command
+// text generically, so it guards both shells (see settings.json's matcher).
 //
 // Blocks command shapes that cause real damage — especially ones that FAIL
 // SILENTLY, where a no-op reports success. A PreToolUse hook can deny a call
