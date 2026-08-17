@@ -153,3 +153,12 @@ E2E layer:
      foreground-polling the backgrounded call's output across further short
      calls. End your turn only with the deliverable or a named blocker,
      never to 'wait for a notification.'"*
+
+4. **Branch hygiene — clean up in the same step you confirm the merge.**
+   When a PR merges, delete its local branch (and its worktree, if one was
+   used) in the same step that verifies the merge. Do not batch the
+   cleanup for later. Squash-merge deletes only the remote branch, so
+   without this rule every merged PR strands a local one. The `.claude/`
+   hooks are the backstop (`branch-sweep.sh` deletes only the provably-safe
+   class, with a SHA ledger for restores); this rule is the primary
+   mechanism.

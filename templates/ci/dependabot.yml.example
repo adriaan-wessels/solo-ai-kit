@@ -1,23 +1,30 @@
-# Starter Dependabot config — copy to the new project's .github/dependabot.yml
-# and fill in the ecosystems that match the stack.
+# OPTIONAL Dependabot version-update config — copy to the new project's
+# .github/dependabot.yml only if you want the version-update PR stream.
 #
-# NOT copied automatically by scripts/bootstrap.ps1, on purpose: the ecosystem
-# list below can't be guessed for an empty project, and a wrong guess is a
-# broken config. Copying it is item 2 on the kit README's "Post-bootstrap
-# checklist (web UI)", alongside enabling Dependabot alerts in the repo's
-# security settings. Dependabot itself is free on private personal repos —
-# there is no good reason for a new project to skip it. (The project this kit
-# was extracted from ran for months before a tool audit noticed it had never
-# been enabled at all.)
+# This file is NOT the security side. Dependabot alerts and security-fix
+# PRs are repo settings, independent of dependabot.yml (GitHub docs:
+# the file and those settings do not interact). Turn the security side on
+# for every project — item 2 on the kit README's "Post-bootstrap
+# checklist (web UI)". It is free and low-noise.
 #
-# The shape is deliberately minimal, matching the kit's "add process only when
-# earned" stance:
+# The version-update stream this file adds is a different trade. The
+# source project ran it and retired it on 2026-08-15: one week left 12
+# version-update PRs stuck, because a continuous push of update PRs
+# fights a periodic-pull process, and the ignore rules needed to make it
+# safe rot silently. The kit default is the dependency-freshness line in
+# the periodic process review instead (see "Periodic reviews" in the kit
+# README), which batches upgrades into deliberate issues.
+#
+# NOT copied automatically by scripts/bootstrap.ps1, on purpose: it is
+# opt-in, and the ecosystem list below can't be guessed for an empty
+# project — a wrong guess is a broken config.
+#
+# If you do want the stream, the shape here keeps the noise down:
 #   - weekly, not daily — updates batch into one predictable wave;
-#   - minor + patch grouped into a single PR per ecosystem — the noise floor
-#     stays near one PR per ecosystem per week;
+#   - minor + patch grouped into a single PR per ecosystem — the noise
+#     floor stays near one PR per ecosystem per week;
 #   - majors arrive as individual PRs — those are the ones that actually
 #     need reading before merge.
-# Tighten (daily, security-only, ignore rules) only when a real need shows up.
 
 version: 2
 updates:

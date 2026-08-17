@@ -1,0 +1,3 @@
+# Bash hooks must check out with LF: under core.autocrlf=true a fresh clone
+# otherwise gets CRLF scripts, and Git Bash fails on the \r characters.
+*.sh text eol=lf

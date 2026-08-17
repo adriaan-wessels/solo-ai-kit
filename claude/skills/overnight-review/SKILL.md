@@ -8,11 +8,12 @@ description: >-
   (delivery + testing) — catch-and-report to <PLACEHOLDER: the tracker/board,
   e.g. "the GitHub Project board">. Use when you want a thorough unattended
   review/hardening run before daily-driving the product (typically kicked off
-  while the founder is AFK/asleep). Opens with a Phase-0 gate asking three
-  write-authority questions (merge? fix regressions? author missing tests?)
-  before the founder goes AFK. Optional args pre-answer the gate for scheduled
-  runs: scope=full|review|usertest|testing|nomerge, merge=yes|no,
-  regressionfix=yes|no, fix=report|tests|ask (see "Arguments"). Sibling to the
+  while the founder is AFK/asleep). Opens with a Phase-0 gate asking four
+  write-authority questions (merge? fix regressions? author missing tests?
+  sweep dead branches?) before the founder goes AFK. Optional args pre-answer
+  the gate for scheduled runs: scope=full|review|usertest|testing|nomerge,
+  merge=yes|no, regressionfix=yes|no, fix=report|tests|ask,
+  hygiene=apply|report|no (see "Arguments"). Sibling to the
   issue-triage-to-milestones workflow.
 ---
 
@@ -24,8 +25,8 @@ description: >-
   needs a real value for this project before the skill is fully useful; the
   surrounding STRUCTURE (ask the write-authority gate -> land safe work -> gate
   on the expensive test layer with flake triage -> fan out user-test/review/
-  engineering-system fleets -> catch-and-report to the tracker) is what should
-  carry over unchanged.
+  engineering-system fleets -> catch-and-report to the tracker -> close with
+  the repo-hygiene sweep) is what should carry over unchanged.
 -->
 
 A single end-to-end pass, run while the founder is asleep or away, that lands
@@ -70,6 +71,9 @@ a scheduled/cron run stays unattended):
 - `fix=report|tests|ask` — `report` (report-only), `tests` (author missing
   tests on branches/PRs, never the default branch), `ask` (propose each test
   individually before writing it).
+- `hygiene=apply|report|no` — the Phase-4 close-out sweep of provably-dead
+  local branches/worktrees. `apply` deletes the SAFE class (SHA-ledgered),
+  `report` classifies only, `no` skips the phase.
 
 ---
 
@@ -92,7 +96,7 @@ needs the founder's sign-off).
 
 ## PHASE 0 — Kickoff gate (ask BEFORE the founder goes AFK)
 
-Three decisions govern everything this run writes, and none of them may be
+Four decisions govern everything this run writes, and none of them may be
 defaulted silently. **Ask them in ONE question round, as the first thing you
 do** — before Phase 1, before spawning anything, while the founder is still
 awake and at the keyboard. Skip any question already pre-answered by an
@@ -109,15 +113,20 @@ straight through.
    on*.
 3. **Author missing tests?** — "Write the highest-leverage missing tests?" -
    *Yes, author them* / *No, report only* / *Ask first for each new test*.
+4. **Sweep dead branches?** — "At close-out, delete provably-dead local
+   branches and worktrees (`branch-sweep.sh` SAFE class only, every deletion
+   SHA-ledgered and restorable)?" - *Yes, apply the sweep* / *Report only* /
+   *Skip*.
 
 Echo the answers back in one line before starting, and record them in the
 final report so the morning read makes clear which mode the run used.
 
 **If the gate goes unanswered** (a scheduled run with no human, or the founder
 walks away mid-question): do **not** block the run and do **not** assume yes.
-Fall back to the conservative answers — no merge, no fix, report-only — run
-the rest of the pass in full, and say plainly at the top of the report that
-the gate was never answered and which work was consequently left on the table.
+Fall back to the conservative answers — no merge, no fix, report-only, and a
+report-only hygiene sweep — run the rest of the pass in full, and say plainly
+at the top of the report that the gate was never answered and which work was
+consequently left on the table.
 
 ## PHASE 1 — Land the work
 
@@ -385,6 +394,32 @@ did.** A prompt that edits its own guardrails to make the run look compliant
 is the one failure mode that makes every future run untrustworthy. When in
 doubt, it's (b).
 
+## PHASE 4 — Repo hygiene (close-out)
+
+**Follows Phase-0 question 4.** Run after the workstreams complete, so the
+sweep sees this run's own merges. Mechanism: `.claude/hooks/branch-sweep.sh`
+(documented in the kit's `claude/README.md`). The root cause it exists for:
+squash-merge deletes only the remote branch, so every merged PR strands a
+local one unless something cleans it up.
+
+- *Apply* — run `bash .claude/hooks/branch-sweep.sh report` first, then
+  `... apply`. Only the SAFE class is deleted: the branch head is contained
+  in the default branch, or its upstream is gone and a merged PR matches the
+  head name with no open PR reusing it. Every deletion lands in
+  `.claude/state/branch-sweep.log` with its SHA; restore with
+  `git branch <name> <sha>`.
+- *Report only* (also the unanswered-gate fallback) — run `report`, delete
+  nothing, and put the classification in the morning report.
+- *Skip* — do nothing.
+
+FLAGGED rows (WIP branches, local-only work, dirty worktrees) are judgment
+cases and are **never deleted by this phase, in any mode** — not even on
+*apply*. Verify each against issue/PR state the same way the workstreams
+verify their claims, and list the delete-proposals in the morning report for
+the founder to approve. (The SubagentStop hook runs the same script's `auto`
+mode continuously between runs; this pass is the backstop that also covers
+what `auto` must not touch.)
+
 ## METHOD (all workstreams)
 
 - **Evidence-based:** ground every claim in something you ran or read.
@@ -453,9 +488,11 @@ integrated report:
 - Executive summary + a maturity scorecard (one rating + one line per review
   lens and for the engineering system).
 - **The Phase-0 gate answers this run used** (merge / regression-fix /
-  missing-tests, and whether each came from an argument, the founder, or the
-  unanswered fallback) — plus the model + effort per workstream. First thing
-  in the report: it frames everything below it.
+  missing-tests / hygiene, and whether each came from an argument, the
+  founder, or the unanswered fallback) — plus the model + effort per
+  workstream. First thing in the report: it frames everything below it.
+- **The Phase-4 hygiene result:** branches/worktrees deleted (count + ledger
+  path) and the FLAGGED delete-proposals awaiting the founder's approval.
 - P0/P1/P2 findings with evidence and filed-issue links, deduped, grouped by
   workstream/lens, with a "highest-leverage 10" call-out across everything.
 - Regression-catch probe results per critical path (protected/unprotected).

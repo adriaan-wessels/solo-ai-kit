@@ -32,6 +32,13 @@
             "type": "command",
             "command": "node .claude/hooks/session-start.js",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "bash .claude/hooks/session-branch-count.sh",
+            "timeout": 10,
+            "statusMessage": "Counting local branches…"
           }
         ]
       }
@@ -75,6 +82,13 @@
             "type": "command",
             "command": "node .claude/hooks/agent-ledger.js stop",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "bash .claude/hooks/branch-sweep.sh auto",
+            "timeout": 60,
+            "statusMessage": "Sweeping merged branches…"
           }
         ]
       }

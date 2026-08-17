@@ -65,6 +65,26 @@ Copy-Item -Recurse -Path claude\* -Destination <new-project>\.claude\
   something the agent has rather than something it must remember to fetch.
   Cached 30 minutes. Read the header before adding sections: anything on
   this path has to be cheap.
+- **`hooks/branch-sweep.sh`** — mechanical cleanup of provably-dead local
+  branches and worktrees. The root cause: squash-merge auto-deletes only
+  the remote branch, so every merged PR strands a local one (74 had
+  accumulated on the source project by 2026-08-15). Three modes: `report`
+  classifies only (TSV to stdout); `apply` deletes the safe class; `auto`
+  is the SubagentStop wiring — rate-limited to hourly, lock-guarded,
+  silent when idle. "Safe" means the branch head is contained in the
+  default branch, or its upstream is gone and a merged PR matches the head
+  name with no open PR reusing it. Everything else is FLAGGED and never
+  deleted by the hook — those are judgment cases for a human-approved
+  hygiene pass (run `report` first, then decide). Every deletion is
+  appended to `.claude/state/branch-sweep.log` with its SHA; restore with
+  `git branch <name> <sha>`. The hook is the backstop — the primary
+  mechanism is the standing rule in `templates/CLAUDE.md`: delete the
+  local branch in the same step the merge is confirmed.
+- **`hooks/session-branch-count.sh`** — a SessionStart tripwire that
+  injects the local branch and worktree counts as context, and suggests a
+  sweep when either passes a threshold (15 branches / 2 extra worktrees).
+  Pure local git — no fetch, no `gh` — so it costs nothing on the
+  session-start path.
 
 ## The delivery gotcha that makes or breaks all of these
 
