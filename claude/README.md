@@ -16,6 +16,47 @@ Copy-Item -Recurse -Path claude\* -Destination <new-project>\.claude\
 # then make sure <new-project>\.gitignore has a line: .claude/
 ```
 
+## Two install modes: project-level vs machine-global
+
+`claude/hooks/` supports two install modes. Pick one mode per hook. Never
+wire the same hook in both places.
+
+**Project-level (the default).** `scripts/bootstrap.ps1` copies `claude/`
+into each new project's git-ignored `.claude/`. The hooks and their wiring
+live there. Their scope is that one project only.
+
+**Machine-global.** Four hooks are project-agnostic: `guardrail.js`,
+`prompt-context.js`, `agent-ledger.js`, and `session-start.js`. They read no
+project-specific state, so you can install them once instead of per project.
+Run `scripts/install-global-hooks.ps1` to copy them into `~/.claude/hooks/`
+and wire them in `~/.claude/settings.json`. A machine-global install covers
+every session on the machine, including repos that never ran
+`bootstrap.ps1`.
+
+The other four hooks (`ci-status.sh`, `subagent-stall-check.sh`,
+`branch-sweep.sh`, `session-branch-count.sh`) read the current repo's CI
+runs and branches. They stay project-level in this kit's source setup.
+Nothing stops you from installing them machine-global too, but the kit does
+not ship that path.
+
+**The rule: each hook gets exactly one home.** Claude Code merges hooks
+from user-level and project-level settings. It runs both sets. Wire a hook
+in both places and it fires twice per event. A doubled `guardrail.js`
+evaluates the same Bash call twice. A doubled `agent-ledger.js` writes two
+ledger entries per start or stop. A doubled `prompt-context.js` injects two
+context blocks into the same prompt. Pick one home per hook and stay there.
+
+**State paths follow the hook's own location.** Each JS hook resolves its
+state directory relative to itself: `path.join(__dirname, '..', 'state')`.
+No code change is needed to switch modes. A project-level install writes to
+`.claude/state/`. A machine-global install writes to `~/.claude/state/`.
+
+`scripts/bootstrap.ps1` dedupes automatically. When it copies `claude/`
+into a new project, it checks `~/.claude/settings.json` first. It drops any
+hook wiring already present machine-globally from the new project's copy.
+A machine with the global install does not end up with project-level
+duplicates.
+
 ## What's in here
 
 - **`settings.json`** — registers every hook below. Merge this into the new

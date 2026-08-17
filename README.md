@@ -547,6 +547,11 @@ only prerequisite is an installed, authenticated GitHub CLI (`gh`).
   (a placeholder; fill in the real CI job name once the first run
   exists), `enforce_admins` on, force pushes and branch deletion off.
 
+Hooks can install two ways: per project (bootstrap's default) or once,
+machine-global. When a hook is already installed machine-global, bootstrap
+skips wiring it again for the new project. See `claude/README.md` for the
+machine-global setup.
+
 **What it prints as a manual step instead of failing.** Each such step
 gets a clear, direct instruction, not a silent skip:
 

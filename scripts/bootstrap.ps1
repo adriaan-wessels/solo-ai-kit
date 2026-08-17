@@ -17,6 +17,12 @@
     the script against an already-bootstrapped project skips what already
     exists rather than erroring.
 
+    After copying claude/ into the new project, it also dedupes against any
+    hooks already installed machine-global (scripts/install-global-hooks.ps1,
+    see claude/README.md "Two install modes"). A project-level hook whose
+    script filename already appears in ~/.claude/settings.json is dropped
+    from the new project's copy, so it does not fire twice.
+
 .PARAMETER ProjectName
     Name of the new project. Used as the local directory name, the GitHub
     repo name, and the project board title.
@@ -248,6 +254,103 @@ function Copy-TemplateFile {
     Write-DoneLine ('copied {0}' -f $DestPath)
 }
 
+# ---------------------------------------------------------------------------
+# Dedupe helpers - skip any project-level hook already installed
+# machine-global (see scripts/install-global-hooks.ps1 and claude/README.md
+# "Two install modes"). Generic and filename-based on purpose: it does not
+# hardcode the four JS hook names, so it also catches a hook someone wired
+# machine-global by hand. Works against the PSCustomObject shape PS 5.1's
+# ConvertFrom-Json returns (no -AsHashtable in 5.1).
+# ---------------------------------------------------------------------------
+
+function Get-ScriptFileNamesFromSettings {
+    # Returns the set of script filenames (e.g. "guardrail.js") referenced by
+    # any hook command in $SettingsObj.hooks.
+    param($SettingsObj)
+    $names = New-Object 'System.Collections.Generic.HashSet[string]'
+    if ($null -eq $SettingsObj) { return $names }
+    if (-not (Get-Member -InputObject $SettingsObj -Name 'hooks' -MemberType NoteProperty -ErrorAction SilentlyContinue)) {
+        return $names
+    }
+    $hooksSection = $SettingsObj.hooks
+    $eventNames = Get-Member -InputObject $hooksSection -MemberType NoteProperty | ForEach-Object { $_.Name }
+    foreach ($eventName in $eventNames) {
+        $groups = @($hooksSection.$eventName)
+        foreach ($group in $groups) {
+            if ($null -eq $group) { continue }
+            if (-not (Get-Member -InputObject $group -Name 'hooks' -MemberType NoteProperty -ErrorAction SilentlyContinue)) { continue }
+            $entries = @($group.hooks)
+            foreach ($entry in $entries) {
+                if ($null -eq $entry) { continue }
+                if (-not (Get-Member -InputObject $entry -Name 'command' -MemberType NoteProperty -ErrorAction SilentlyContinue)) { continue }
+                $fileMatches = [regex]::Matches($entry.command, '[A-Za-z0-9_\-]+\.(?:js|sh)')
+                foreach ($m in $fileMatches) {
+                    [void]$names.Add($m.Value)
+                }
+            }
+        }
+    }
+    return $names
+}
+
+function Remove-DuplicateHookEntries {
+    # Removes, in place, any hook entry in $SettingsObj.hooks whose command
+    # references a filename in $GlobalScriptNames. Drops a matcher group
+    # left with zero hook entries, and drops an event key left with zero
+    # matcher groups. Prints one line per removed entry. Returns the count
+    # removed.
+    param($SettingsObj, [System.Collections.Generic.HashSet[string]]$GlobalScriptNames)
+    $removedCount = 0
+    if ($null -eq $SettingsObj) { return $removedCount }
+    if (-not (Get-Member -InputObject $SettingsObj -Name 'hooks' -MemberType NoteProperty -ErrorAction SilentlyContinue)) {
+        return $removedCount
+    }
+    $hooksSection = $SettingsObj.hooks
+    $eventNames = @(Get-Member -InputObject $hooksSection -MemberType NoteProperty | ForEach-Object { $_.Name })
+    foreach ($eventName in $eventNames) {
+        $groups = @($hooksSection.$eventName)
+        $keptGroups = New-Object System.Collections.Generic.List[object]
+        foreach ($group in $groups) {
+            if ($null -eq $group) { continue }
+            $entries = @()
+            if (Get-Member -InputObject $group -Name 'hooks' -MemberType NoteProperty -ErrorAction SilentlyContinue) {
+                $entries = @($group.hooks)
+            }
+            $keptEntries = New-Object System.Collections.Generic.List[object]
+            foreach ($entry in $entries) {
+                if ($null -eq $entry) { continue }
+                $cmd = ''
+                if (Get-Member -InputObject $entry -Name 'command' -MemberType NoteProperty -ErrorAction SilentlyContinue) {
+                    $cmd = $entry.command
+                }
+                $matchedName = $null
+                foreach ($name in $GlobalScriptNames) {
+                    if ($cmd -match [regex]::Escape($name)) {
+                        $matchedName = $name
+                        break
+                    }
+                }
+                if ($null -ne $matchedName) {
+                    Write-Host ('    skipped hook {0} ({1}) - already installed machine-globally' -f $matchedName, $eventName) -ForegroundColor Yellow
+                    $removedCount = $removedCount + 1
+                } else {
+                    $keptEntries.Add($entry) | Out-Null
+                }
+            }
+            if ($keptEntries.Count -gt 0) {
+                $group.hooks = @($keptEntries.ToArray())
+                $keptGroups.Add($group) | Out-Null
+            }
+        }
+        if ($keptGroups.Count -gt 0) {
+            $hooksSection.$eventName = @($keptGroups.ToArray())
+        } else {
+            $hooksSection.PSObject.Properties.Remove($eventName)
+        }
+    }
+    return $removedCount
+}
+
 Copy-TemplateFile -SourcePath (Join-Path $KitRoot 'templates\CLAUDE.md') -DestPath (Join-Path $ProjectDir 'CLAUDE.md')
 Copy-TemplateFile -SourcePath (Join-Path $KitRoot 'templates\pull_request_template.md') -DestPath (Join-Path $ProjectDir '.github\pull_request_template.md')
 Copy-TemplateFile -SourcePath (Join-Path $KitRoot 'templates\ci\generic-ci.yml') -DestPath (Join-Path $ProjectDir '.github\workflows\ci.yml')
@@ -281,6 +384,91 @@ if (Test-Path $claudeDestDir) {
     New-Item -ItemType Directory -Path $claudeDestDir -Force | Out-Null
     Copy-Item -Recurse -Path (Join-Path $KitRoot 'claude\*') -Destination $claudeDestDir
     Write-DoneLine ('copied claude/ -> {0} (git-ignored, see .gitignore above)' -f $claudeDestDir)
+}
+
+Write-StepHeader 'Dedupe project-level hooks against a machine-global install'
+
+$globalSettingsPath = Join-Path $env:USERPROFILE '.claude\settings.json'
+if (-not (Test-Path $globalSettingsPath)) {
+    Write-SkippedLine 'no machine-global ~\.claude\settings.json found - nothing to dedupe'
+} else {
+    $globalSettings = $null
+    try {
+        # -Encoding UTF8 matters here: these files can carry non-ASCII text
+        # (e.g. the "…" in ci-status.sh's statusMessage), and PS 5.1's
+        # Get-Content -Raw falls back to the system codepage for a BOM-less
+        # file, silently mangling anything outside ASCII on read.
+        $globalRaw = Get-Content -Path $globalSettingsPath -Raw -Encoding UTF8
+        if (-not [string]::IsNullOrWhiteSpace($globalRaw)) {
+            $globalSettings = $globalRaw | ConvertFrom-Json
+        }
+    } catch {
+        $globalSettings = $null
+    }
+
+    $globalScriptNames = Get-ScriptFileNamesFromSettings -SettingsObj $globalSettings
+
+    if ($globalScriptNames.Count -eq 0) {
+        Write-SkippedLine 'machine-global settings.json has no hook commands to dedupe against'
+    } elseif ($DryRun) {
+        # Nothing was actually copied above under -DryRun, so preview the
+        # dedupe against the kit's own claude/settings.json (the source that
+        # a real run would have copied) instead of a destination file that
+        # does not exist yet.
+        $previewSourcePath = Join-Path $KitRoot 'claude\settings.json'
+        $previewSettings = $null
+        try {
+            $previewRaw = Get-Content -Path $previewSourcePath -Raw -Encoding UTF8
+            $previewSettings = $previewRaw | ConvertFrom-Json
+        } catch {
+            $previewSettings = $null
+        }
+        if ($null -eq $previewSettings) {
+            Write-DryRunLine 'could not preview claude/settings.json for dedupe'
+        } else {
+            $wouldRemove = Remove-DuplicateHookEntries -SettingsObj $previewSettings -GlobalScriptNames $globalScriptNames
+            if ($wouldRemove -eq 0) {
+                Write-DryRunLine 'no project-level hooks overlap with the machine-global install'
+            } else {
+                $plural = 'ies'
+                if ($wouldRemove -eq 1) { $plural = 'y' }
+                Write-DryRunLine ('would skip {0} project-level hook entr{1} above (already installed machine-globally) and rewrite {2}\settings.json' -f $wouldRemove, $plural, $claudeDestDir)
+            }
+        }
+    } else {
+        $projectSettingsPath = Join-Path $claudeDestDir 'settings.json'
+        if (-not (Test-Path $projectSettingsPath)) {
+            Write-SkippedLine ('{0} not found - nothing to dedupe' -f $projectSettingsPath)
+        } else {
+            $projectRaw = Get-Content -Path $projectSettingsPath -Raw -Encoding UTF8
+            $projectSettings = $projectRaw | ConvertFrom-Json
+            $removedCount = Remove-DuplicateHookEntries -SettingsObj $projectSettings -GlobalScriptNames $globalScriptNames
+            if ($removedCount -eq 0) {
+                Write-DoneLine 'no project-level hooks overlap with the machine-global install'
+            } else {
+                $json = $projectSettings | ConvertTo-Json -Depth 10
+                # PS 5.1's Set-Content/Out-File -Encoding utf8 always writes
+                # a UTF-8 BOM. Every settings.json Claude Code actually
+                # loads is BOM-less, and a strict JSON.parse chokes on one,
+                # so write BOM-less UTF-8 directly instead. WriteAllText
+                # resolves a relative path against the .NET process's
+                # CurrentDirectory, which is NOT kept in sync with
+                # PowerShell's own location ($PWD) - notably after
+                # Push-Location, or in a host that never syncs the two.
+                # Resolve through PowerShell's own path provider instead of
+                # [System.IO.Path]::GetFullPath (that overload has the
+                # identical blind spot: it also reads
+                # Environment.CurrentDirectory) so a relative
+                # -DestinationPath still lands where the user's shell says
+                # it should, not wherever the process happened to start.
+                $projectSettingsFullPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($projectSettingsPath)
+                [System.IO.File]::WriteAllText($projectSettingsFullPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+                $plural = 'ies'
+                if ($removedCount -eq 1) { $plural = 'y' }
+                Write-DoneLine ('removed {0} project-level hook entr{1} already installed machine-globally, rewrote {2}' -f $removedCount, $plural, $projectSettingsPath)
+            }
+        }
+    }
 }
 
 # ---------------------------------------------------------------------------
