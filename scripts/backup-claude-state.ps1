@@ -15,8 +15,8 @@
     fresh install, independent of whatever sync/backup the Claude Code app
     itself does.
 
-    TWO-REPO MODEL: this kit (solo-ai-playbook) is shaped to be shared - a
-    generalized playbook and starter templates with no project-specific or
+    TWO-REPO MODEL: this kit (solo-ai-kit) is shaped to be shared - a
+    generalized handbook and starter templates with no project-specific or
     personal content. The actual backup content (global CLAUDE.md, and
     especially the per-project memory/ files, which can span unrelated
     projects with their own private/client context) is real personal data
@@ -55,7 +55,7 @@
 .PARAMETER BackupRepoPath
     Path to the (separate, already-`git init`'d) backup repo to write into.
     Defaults to a sibling of this kit's own repo root - i.e. if this kit
-    lives at ...\scratchpad\solo-ai-playbook, the default resolves to
+    lives at ...\scratchpad\solo-ai-kit, the default resolves to
     ...\scratchpad\claude-state. That repo must already exist and be a git
     repository (this script does not create or initialize it - see the kit
     README's "State backup" section for the one-time setup).
