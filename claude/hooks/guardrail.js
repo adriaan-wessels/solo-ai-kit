@@ -32,6 +32,38 @@ if (typeof cmd !== 'string' || !cmd.trim()) process.exit(0);
 
 const cwd = input.cwd || process.cwd();
 
+// True when this git command targets the claude-state backup repo — either
+// via an explicit `git -C <path-to-claude-state>` or because the directory the
+// command runs in has claude-state as its origin. Resolving the remote (rather
+// than pattern-matching the path alone) means a differently-located clone is
+// still recognised, and a repo that merely happens to sit in a folder of that
+// name is not.
+//
+// This one is pre-populated (rather than left for you to discover) because
+// the kit itself ships a claude-state backup flow: its backup script commits
+// dated snapshots of Claude memory + config and pushes them straight to
+// master on a repo named claude-state. Master IS the delivery target there —
+// a PR per daily backup would be pure ceremony — so the push-to-default-branch
+// rule below needs an exemption for it, the same way it would need one for
+// any repo you designate as a direct-to-master automation target. Adjust the
+// pattern (or delete the carve-out) if your fork uses a different repo name.
+function isBackupRepo(command) {
+  const BACKUP_REMOTE = /claude-state(\.git)?\/?$/;
+  const dashC = command.match(/-C\s+["']?([^"'\s]+)/);
+  const dir = dashC ? dashC[1] : cwd;
+  try {
+    const origin = execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: dir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 3000,
+    }).trim();
+    return BACKUP_REMOTE.test(origin);
+  } catch {
+    return false;
+  }
+}
+
 function currentBranch() {
   try {
     return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
@@ -91,6 +123,17 @@ const rules = [
     name: 'push-to-default-branch',
     test: (c) => {
       if (!/\bgit\b[^&|;]*\bpush\b/.test(c) || /--dry-run/.test(c)) return false;
+      // Carve-out: the claude-state backup repo (see isBackupRepo above).
+      // This rule exists to protect CODE repos, where master is
+      // branch-protected and every change belongs in a reviewed PR. A
+      // dated-snapshot backup repo is different: master IS the delivery
+      // target and a PR per daily backup is meaningless ceremony. Ship this
+      // kit without the exemption and you get the failure it was added to
+      // fix — backups committed locally and never pushed, so the off-machine
+      // copy silently drifts stale for days. Scoped to that one repo by
+      // remote URL or an explicit -C path; every other repo still hits the
+      // ban.
+      if (isBackupRepo(c)) return false;
       const at = c.search(/\bpush\b/);
       const args = c.slice(at + 4);
       // Explicitly naming master/main as the destination refspec.
