@@ -1,4 +1,4 @@
-# Solo Founder + AI Agents — Bootstrap Kit
+# Solo Founder + AI Agents: Bootstrap Kit
 
 This kit is a portable playbook and starter set for one operating model:
 **one founder acts as editor, and AI coding agents act as staff.** The
@@ -386,7 +386,7 @@ anti-patterns below show what that overhead costs.
 
 ---
 
-## Periodic reviews — the process reviews itself
+## Periodic reviews: the process reviews itself
 
 The practices above are themselves a system, and systems drift. Vendors
 re-gate features. CI bills creep. Docs diverge from the tracker.
@@ -407,7 +407,7 @@ BaaS, CDN and hosting, error tracking, auth, and so on) against its
   org, free or paid), not against the marketing page's happy path.
 - Each agent reports three lists, with a doc URL per claim: **adopt**
   (free, fits, do it), **maybe** (useful but plan-gated or needs a
-  decision), and **refuted — do not re-research** (investigated,
+  decision), and **refuted: do not re-research** (investigated,
   unavailable or not worth it, with the citation that proves it).
 - Decisions go to the founder as structured pop-up questions. Adopted
   items are filed to the board. Quick wins are implemented in the same
