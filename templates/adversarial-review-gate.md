@@ -1,4 +1,4 @@
-# Pre-merge adversarial review gate — trial protocol template
+# Pre-merge adversarial review gate: trial protocol template
 
 A per-PR review gate that runs before auto-merge arms. Two prompted
 reviewers attack the diff from the two angles that per-PR CI cannot
@@ -41,14 +41,14 @@ never arm auto-merge themselves.
 **Reviewers.** The coordinator spawns two strong-model reviewers (high
 reasoning effort) against the PR diff plus its issue context:
 
-- **R1 — interaction reviewer (always runs):** "Enumerate every existing
+- **R1 (interaction reviewer, always runs):** "Enumerate every existing
   feature or surface this change interacts with: <PLACEHOLDER: the
   project's interacting surfaces, e.g. filters, saved views, undo, sync,
-  widgets, routing>. For each, reason about the COMBINED behavior — the
-  product of features, not the diff in isolation — and try to construct
+  widgets, routing>. For each, reason about the COMBINED behavior (the
+  product of features, not the diff in isolation) and try to construct
   a concrete broken interleaving. Report only reachable, evidenced
   findings."
-- **R2 — boundary reviewer (runs only when the diff touches an external
+- **R2 (boundary reviewer, runs only when the diff touches an external
   contract):** "List every contract this diff depends on outside the
   compile boundary: <PLACEHOLDER: the project's boundaries, e.g. live DB
   columns and policies (name the VERB), storage paths, platform
