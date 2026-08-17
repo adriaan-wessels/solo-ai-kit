@@ -53,6 +53,22 @@ scarcest resource in the system. The practices below keep as much of it
 as possible off the critical path, without losing correctness or the
 founder's own judgment where that judgment matters.
 
+### A writing directive for low-bandwidth days
+
+On a day when you are tired or short on mental bandwidth, you can hand
+your agents a ready-made writing directive instead of composing one
+yourself:
+
+> Write in ASD-STE100 (Simplified Technical English) with
+> domain-specific extensions, and follow Zinsser's four principles of
+> quality writing: Simplicity, Brevity, Clarity and Humanity.
+
+Credit for the directive goes to Martín Ramírez on LinkedIn.
+Agent-written prose can still carry recognizable AI patterns. A
+de-AI-pattern review pass over the draft helps catch them, and the
+Claude Code "Humanizer" skill is one way to run that pass. This README
+was rewritten under this directive, as the worked example.
+
 ---
 
 ## Portable practices
@@ -146,6 +162,15 @@ declines a test level, **say so in the PR, never silently**. "Verified
 manually, screenshot attached" is a legitimate line in a PR description.
 A PR that does not mention testing at all is not.
 
+CI sharding hides one more trap: a sharded run (`jest --shard`,
+`pytest-xdist`, or similar) can split one file's tests across separate
+OS processes. A variable written in test A and read in test B then
+passes in some shard layouts and fails in others, deterministically,
+not flakily. Per-test setup fixtures (`setUp`, `beforeEach`, or the
+local equivalent) are shard-safe by construction, so put shared state
+there instead. Add a lint or convention check if the pattern keeps
+recurring.
+
 *Why:* an E2E-only strategy is slow and flaky, and it trains agents and
 humans to ignore red runs. An untested strategy means agents cannot
 safely self-merge. Matching level to change keeps the suite fast and
@@ -159,6 +184,11 @@ not looking. The mechanism is a small stack of guardrails:
 - **Branch protection** on the default branch: required status checks
   (CI must be green) plus `enforce_admins`, so the rule applies to
   everyone and there is no quiet bypass.
+- **Pre-merge adversarial review gate.** Independent reviewer agents try
+  to break a feature PR before auto-merge arms on it. A confirmed P0 or
+  P1 finding blocks the merge. The protocol is in
+  `templates/adversarial-review-gate.md`, with the fuller story under
+  "Periodic reviews" below.
 - **Squash auto-merge on green CI.** A PR that passes its required
   checks merges itself. Nobody has to be awake to click the button.
 - **Explicit, scoped AI merge authority.** The founder grants agents
