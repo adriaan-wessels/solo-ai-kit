@@ -9,7 +9,8 @@ approve live-DB schema changes (early on, apply them by hand too;
 practice 7 shows how that gate matures).
 
 The kit comes from a live process review of the Sortomate project
-(2026-07-21). On that project, the model produced:
+(2026-07-21). On that project, a product shipping on three platforms,
+the model produced:
 
 - 30 merged PRs in less than 5 days, with zero PRs left open;
 - 20 of 20 green CI runs on `master`;
@@ -20,7 +21,8 @@ The kit comes from a live process review of the Sortomate project
   real cloud boundary.
 
 These numbers show that the model works. They do not show that it is
-easy. The leverage comes from the practices below, not from the tools
+easy, and they come from weeks on one live project, not years across
+many. The leverage comes from the practices below, not from the tools
 alone.
 
 ---
@@ -155,6 +157,19 @@ no human will eyeball every diff. The pyramid shape matters. Cheap, fast
 unit and widget tests carry most of the weight. The expensive, brittle
 E2E layer is reserved for flows that cross a boundary a lower layer
 cannot reach: auth, sync, payments, any real external service.
+
+The obvious objection: the agents write both the code and the tests
+that grade it, so a green suite is the system agreeing with itself, not
+an independent check. The model does not pretend otherwise. It
+compensates with signals from outside the agents' loop. The founder
+uses the product every day and writes raw testing notes no agent
+authored; those are the first two duties in the operating model, and
+they are load-bearing, not optional. The pre-merge adversarial review
+gate (practice 5) adds a second channel: reviewers prompted to break
+the work, not to confirm it. And the overnight review's regression-catch
+probe mutates code to prove the suite actually goes red. None of this
+makes the suite self-justifying. The founder's daily use is the one
+check no agent can grade.
 
 **Definition of Done means: match the test level to the change.** It
 does not mean "add an E2E spec for everything." And when a change
@@ -432,8 +447,8 @@ re-reads its own skill and manual files against observed reality. It
 fixes *descriptive* drift in place, and it surfaces *normative* changes
 as founder decisions, never self-applied. Each pass also emits **kit
 promotion candidates**, report-only: lessons general enough to move
-upstream into this kit or the founder's global instructions (see
-`claude/skills/overnight-review`, workstream C2).
+upstream into this kit or the founder's global instructions (see the
+delivery-flow workstream, C2, in `claude/skills/overnight-review`).
 
 Two disciplines make these reviews compound instead of merely
 accumulate:
@@ -466,6 +481,32 @@ calcifies around the constraints of its first month. The audits are
 cheap (a few agent-hours on a schedule), and each one pays: it finds
 real money or capability on the table, or it produces citations that
 permanently stop re-research.
+
+---
+
+## Where this model stops
+
+This model is built for one context: a solo founder, and a product
+whose worst failure is a bug and a rollback. Users are fine; the
+verification harness above exists to protect them. What the model does
+not cover is any context where a failure cannot be rolled back, or
+where someone else's rules govern how software must be verified.
+
+- **Safety-critical, regulated, or externally-liable software.**
+  Nothing here substitutes for independent verification or a human
+  reviewer of record. Do not carry the self-merge pattern into that
+  world.
+- **Teams.** The single-editor structure concentrates every judgment
+  gate in one person. An organization adopting these practices needs
+  named decision owners, human review (a CODEOWNERS file, reversing
+  practice 10's omission), and risk tiers that decide which changes an
+  agent may merge alone.
+- **Diligence.** The kit keeps no record of which code an agent
+  generated, with which model, reviewed by whom. If provenance will
+  ever matter to you, build that record from day one.
+
+The five manual duties shrink in keystrokes as the system matures; see
+practice 7. The judgment they carry does not.
 
 ---
 
@@ -539,10 +580,39 @@ analogy, and cost more than it returned.
 
 ## Day-one bootstrap
 
+### Get the kit
+
+```powershell
+git clone https://github.com/adriaan-wessels/solo-ai-playbook.git
+cd solo-ai-playbook
+```
+
+Before running anything, check the prerequisites:
+
+- **Windows.** The scripts are PowerShell 5.1; there is no macOS or
+  Linux port. The practices themselves are tool- and OS-agnostic, so
+  the model transfers; porting the automation is on you.
+- **`git` and the GitHub CLI (`gh`)**, installed, with `gh auth login`
+  done. The board setup also needs the `project` scope:
+  `gh auth refresh -s project`.
+- **Node.js on PATH, and Git Bash as your `bash`** (not the WSL stub in
+  `AppData\Local\Microsoft\WindowsApps`). The hooks under `claude/`
+  need both; see `claude/README.md`.
+- **An AI coding agent already set up.** The kit is built and tested
+  against Claude Code. The same principles apply to other agents, but
+  adapting the hooks, skills and settings is on you.
+- If PowerShell refuses to run the scripts, unblock them for the
+  session: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`.
+
+A real (non-`-DryRun`) run creates a real private repository and a real
+Projects board on your GitHub account. Preview with `-DryRun` first.
+
+### The bootstrap script
+
 `scripts/bootstrap.ps1` automates the repeatable slice of new-project
 setup under this model. It is **PowerShell 5.1-compatible** (no `&&`, no
-ternary, no null-coalescing), so it runs on a stock Windows machine. The
-only prerequisite is an installed, authenticated GitHub CLI (`gh`).
+ternary, no null-coalescing), so it runs on a stock Windows machine with
+the prerequisites above.
 
 ```powershell
 # Preview every step without touching anything (local or remote):
