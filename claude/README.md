@@ -2,7 +2,7 @@
 
 Everything in this directory belongs on disk as the new project's
 `.claude/` directory. It is **not** committed to the project's git repo.
-In the Sortomate project, this whole tree is git-ignored on purpose. It's
+In the source project, this whole tree is git-ignored on purpose. It's
 personal automation tooling for working the project, not project source,
 so it can change freely between sessions without needing a PR.
 
