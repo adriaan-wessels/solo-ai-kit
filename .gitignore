@@ -1,3 +1,6 @@
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Personal Claude Code settings (not part of the shareable kit)
+.claude/settings.local.json
