@@ -627,6 +627,9 @@ ask it to:
 Adapting the kit is a good first exercise in the operating model it
 teaches.
 
+**Feedback is welcome.** Open a GitHub issue for a bug, a broken step,
+or a gap in the kit. I want to hear about it.
+
 A real (non-`-DryRun`) run creates a real private repository and a real
 Projects board on your GitHub account. Preview with `-DryRun` first.
 
