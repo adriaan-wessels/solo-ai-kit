@@ -1,5 +1,16 @@
 # Solo Founder + AI Agents: Bootstrap Kit
 
+**Written by the agents it describes.** AI coding agents wrote every
+document, script and hook in this kit, under the operating model it
+documents. Their drafts pass the same gates the model prescribes: an
+agent draft, an agent review, then my sign-off on philosophy,
+boundaries, and every call I could not undo. The writing follows the
+same pattern, down to the sentence level. Agents draft in Simplified
+Technical English plus Zinsser's four rules, then run a Humanizer pass
+to catch AI-sounding prose (see "A writing directive for low-bandwidth
+days" below). Treat the kit as a worked example of its own method: the
+agents write, the agents check, and I approve.
+
 This kit is a portable handbook and starter set for one operating model:
 **one founder acts as editor, and AI coding agents act as staff.** The
 agents maintain the tracker, write the code, verify it, and merge on
@@ -603,6 +614,21 @@ Before running anything, check the prerequisites:
   adapting the hooks, skills and settings is on you.
 - If PowerShell refuses to run the scripts, unblock them for the
   session: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`.
+
+**Not on Claude Code or Windows?** This kit is written to be read by
+agents, not only by people. Point your own AI assistant at the repo and
+ask it to:
+
+1. Read the handbook.
+2. Say which parts apply to your stack.
+3. Propose an adapted implementation.
+4. Discuss the plan with you before it builds anything.
+
+Adapting the kit is a good first exercise in the operating model it
+teaches.
+
+**Feedback is welcome.** Open a GitHub issue for a bug, a broken step,
+or a gap in the kit. I want to hear about it.
 
 A real (non-`-DryRun`) run creates a real private repository and a real
 Projects board on your GitHub account. Preview with `-DryRun` first.
