@@ -80,3 +80,36 @@ The founder reads the ledger and decides: adopt as a standing
 or drop. Record the decision on the trial's issue. The issue is the
 decision-of-record; a standing rule then points at it instead of
 restating it.
+
+## Lessons from running the gate
+
+These came from running the gate for real, after the trial that got it
+adopted. Fold them in wherever you adapt this template.
+
+- **Arming ends the gate. Disarm before any fix round.**
+  `gh pr merge --auto` is a standing instruction, not approval of the
+  diff a reviewer just cleared. It persists across every later push. On
+  2026-08-21, a PR was armed after its review round passed, CI then went
+  red, the builder pushed a fix, checks went green, and auto-merge fired
+  instantly on a commit nobody had reviewed. Two P2 findings shipped.
+  Treat "armed" and "reviewed" as two separate facts. Disarm before a fix
+  round starts, and only re-arm after the fix gets its own review (see
+  below).
+- **Reviewers must re-run the claim, not read the PR body.** A reviewer
+  who reads a test's description and takes its word for it will pass a
+  vacuous test. A reviewer who reintroduces the defect and watches
+  whether the test still passes will not. This single practice produced
+  every catch of a false test so far.
+- **Name vacuous verification as an explicit hunt target.** Look
+  specifically for tests that pass against the exact bug they claim to
+  guard. Four turned up in one week. CI cannot reach this class on its
+  own, because CI only runs the tests, and the tests pass.
+- **Do not spend an expensive reviewer on a head whose CI is not yet
+  green.** Sequence the gate behind CI. A reviewer costs several times
+  what the CI run does; spending one on a commit CI would have rejected
+  anyway wastes the expensive check on a question the cheap one already
+  answers.
+- **A fix round needs its own review, not a rubber stamp.** Two P1
+  defects in one week were introduced by the repair, not by the original
+  bug. Treat a post-finding fix as a new diff to review, not a patch to a
+  diff someone already cleared.

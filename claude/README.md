@@ -33,11 +33,11 @@ and wire them in `~/.claude/settings.json`. A machine-global install covers
 every session on the machine, including repos that never ran
 `bootstrap.ps1`.
 
-The other four hooks (`ci-status.sh`, `subagent-stall-check.sh`,
-`branch-sweep.sh`, `session-branch-count.sh`) read the current repo's CI
-runs and branches. They stay project-level in this kit's source setup.
-Nothing stops you from installing them machine-global too, but the kit does
-not ship that path.
+The other three hooks (`subagent-stall-check.sh`, `branch-sweep.sh`,
+`session-branch-count.sh`) work per repo: they read the current repo's
+branches or keep state in its `.claude/state/`. They stay project-level in
+this kit's source setup. Nothing stops you from installing them
+machine-global too, but the kit does not ship that path.
 
 **The rule: each hook gets exactly one home.** Claude Code merges hooks
 from user-level and project-level settings. It runs both sets. Wire a hook
@@ -66,11 +66,6 @@ duplicates.
   stub (`AppData\Local\Microsoft\WindowsApps\bash.exe`, which reports
   `Linux`), not Git Bash, and hooks then run in the wrong OS. That's why the
   newer hooks here are Node.
-- **`hooks/ci-status.sh`**: a Stop hook that checks the current commit's CI
-  runs after a push and surfaces anything non-green. Near-generic as-is; it
-  only assumes `git`, `gh`, and a GitHub Actions-style CI. See the comments
-  in the file for the exact trigger conditions (only fires within 30 minutes
-  of a pushed HEAD, stays silent when everything's green).
 - **`hooks/subagent-stall-check.sh`**: a SubagentStop hook that scans a
   just-finished subagent's final message for the "waiting for a
   notification…" stall signature. This is the worker-side trap in the

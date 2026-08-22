@@ -84,6 +84,32 @@ was rewritten under this directive, as the worked example.
 
 ---
 
+## Five principles behind the practices
+
+These five ideas sit under most of what follows. State them once, and the
+practices below read as instances of a rule instead of an arbitrary list.
+
+1. **A lesson that recurs is a missing mechanism, not a missing
+   reminder.** Every lesson that became a mechanism (a hook, a lint, a
+   guardrail) stopped recurring. Every lesson left as prose recurred,
+   between two and thirteen times, before it did.
+2. **Guards fail open.** A guard that blocks legitimate work gets
+   disabled. Once disabled, it protects nothing. Build every guard to let
+   real work through, or it gets switched off at the exact moment it
+   would have mattered.
+3. **Verification must be adversarial to itself.** A test that passes
+   against the bug it claims to catch is worse than no test, because it
+   manufactures confidence nobody should have. Four such tests turned up
+   in a single week on the source project.
+4. **Arming a merge ends the review.** Any change after that point
+   reopens it. "Auto-merge is armed" and "this diff was reviewed" are two
+   separate facts, not one.
+5. **Priority answers one question: does this block the milestone from
+   exiting.** Not effort. Not size. A rubric that answers a different
+   question stops meaning anything.
+
+---
+
 ## Portable practices
 
 Each practice generalizes beyond the project it was learned on. The list
@@ -222,10 +248,11 @@ not looking. The mechanism is a small stack of guardrails:
   protection is the enforced bar. The grant explicitly excludes
   destructive operations, releases, and anything the founder has flagged
   for personal review.
-- **A stop-hook that surfaces CI status after every push.** A small
-  script checks the current commit's CI runs when an agent session ends
-  and reports anything non-green. "I pushed" and "I verified it is
-  green" never get silently conflated.
+- **Verify CI is actually green before calling a push done.** "I pushed"
+  and "I verified it is green" must never get silently conflated. This
+  stays a standing rule backed by an explicit check (`gh run watch` or
+  equivalent) rather than a background hook; see "Anti-patterns learned
+  the hard way" for why the kit tried and retired a hook version of this.
 - **Branch-cruft removal: rule first, hook second.** Squash-merge
   deletes only the remote branch, so every merged PR strands a local
   one. On the source project, 74 stranded branches had accumulated by
@@ -586,6 +613,18 @@ analogy, and cost more than it returned.
   unrelated clients. Keep the two concerns in physically separate repos from the
   start (see "State backup" below). Do not rely on remembering to scrub
   one out of the other before every publish.
+
+- **A hook shipped by default with no log and no recorded catch.** The
+  kit shipped a Stop-hook (`ci-status.sh`) that silently checked CI
+  status after every push. It looked cheap and safe, so nobody
+  questioned it. An audit found it had produced zero recorded catches,
+  kept no log to prove otherwise, and duplicated a duty a standing rule
+  already assigns (verify CI is actually green, with an explicit check,
+  before calling a push done). Retired 2026-08-22. A hook earns a
+  permanent place in the kit once it can point at evidence it caught
+  something the rule alone would have missed, the same bar
+  `branch-sweep.sh`'s ledger meets. Until a hook has that evidence, keep
+  the duty as a rule, not a script.
 
 ---
 

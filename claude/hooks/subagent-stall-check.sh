@@ -31,7 +31,7 @@
 # message also matched would be blocked forever. The phrase list is
 # deliberately broad, so a false positive costs one extra turn, never a hang.
 #
-# Design notes (mirrors ci-status.sh):
+# Design notes:
 #  - Fails quietly (exit 0) at every step — must NEVER wedge a turn.
 #  - Cheap local preconditions before any work (python present, stdin non-empty).
 #  - Only blocks when a stall phrase actually matches; silent otherwise.

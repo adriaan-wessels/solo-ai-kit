@@ -111,6 +111,31 @@ E2E layer:
 
 ---
 
+## Principles
+
+Five ideas that sit under the standing rules below. Keep them; the rules
+are specific instances of these, not a separate list.
+
+1. **A lesson that recurs is a missing mechanism, not a missing
+   reminder.** A lesson left as prose repeats. A lesson turned into a
+   mechanism (a hook, a lint, a guardrail) stops repeating. See standing
+   rule 5 below for the concrete trigger.
+2. **Guards fail open.** A guard that blocks legitimate work gets
+   disabled, and once disabled it protects nothing. Build every guard to
+   let real work through.
+3. **Verification must be adversarial to itself.** A test that passes
+   against the bug it claims to catch is worse than no test: it
+   manufactures confidence nobody should have. Hunt for this class
+   explicitly; CI cannot find it on its own, because CI only runs the
+   tests, and the tests pass.
+4. **Arming a merge ends the review.** Any change after that point
+   reopens it. Disarm before a fix round, and re-review the fix before
+   re-arming.
+5. **Priority answers one question: does this block the milestone from
+   exiting.** Not effort. Not size.
+
+---
+
 ## Standing rules
 
 **IMPORTANT.** These override default behaviour:
@@ -162,3 +187,15 @@ E2E layer:
    hooks are the backstop (`branch-sweep.sh` deletes only the provably-safe
    class, with a SHA ledger for restores); this rule is the primary
    mechanism.
+
+5. **Two strikes: promote a recurring lesson to a mechanism, or delete
+   it.** The first time something goes wrong, write it down as prose (a
+   memory file, a gotcha in this doc). That is a reminder, and reminders
+   get missed under load. The **second** recorded occurrence of the same
+   lesson means the reminder already failed once. At that point, do one
+   of two things: promote the lesson into a mechanism (a guardrail rule,
+   a hook, a test that fails when the mistake recurs), or delete the
+   lesson outright if it is not worth the mechanism. Do not let it sit as
+   prose for a third time. Evidence for the rule: lessons left as prose
+   recurred between two and thirteen times before anyone fixed the root
+   cause; every lesson that got a mechanism instead stopped recurring.

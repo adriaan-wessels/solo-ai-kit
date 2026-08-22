@@ -397,7 +397,7 @@ if (-not (Test-Path $globalSettingsPath)) {
     $globalSettings = $null
     try {
         # -Encoding UTF8 matters here: these files can carry non-ASCII text
-        # (e.g. the "…" in ci-status.sh's statusMessage), and PS 5.1's
+        # (e.g. the "…" in branch-sweep.sh's statusMessage), and PS 5.1's
         # Get-Content -Raw falls back to the system codepage for a BOM-less
         # file, silently mangling anything outside ASCII on read.
         $globalRaw = Get-Content -Path $globalSettingsPath -Raw -Encoding UTF8

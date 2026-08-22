@@ -17,10 +17,10 @@
     this once does not create double-fires on projects bootstrapped
     afterwards.
 
-    The other four hooks in the kit (ci-status.sh, subagent-stall-check.sh,
+    The other three hooks in the kit (subagent-stall-check.sh,
     branch-sweep.sh, session-branch-count.sh) are project-specific - they
-    read the current repo's CI/branches - and stay project-level. This
-    script does not touch them.
+    read the current repo's branches or keep per-repo state - and stay
+    project-level. This script does not touch them.
 
     What it does:
       1. Copies claude/hooks/{guardrail,prompt-context,agent-ledger,

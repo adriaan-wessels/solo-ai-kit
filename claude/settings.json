@@ -43,19 +43,6 @@
         ]
       }
     ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "shell": "bash",
-            "command": "bash .claude/hooks/ci-status.sh",
-            "timeout": 20,
-            "statusMessage": "Checking CI status…"
-          }
-        ]
-      }
-    ],
     "SubagentStart": [
       {
         "matcher": "",
