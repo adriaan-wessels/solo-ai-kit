@@ -453,14 +453,16 @@ what `auto` must not touch.)
   exceptions: style-guide drift under lens 11 and prompt/doc drift under the
   C2 reconcile may be corrected in place, because they only make a doc match
   shipped reality. Their normative halves never are.
-- **Absorption ceiling: soft-cap what gets FILED, not what gets reviewed.**
-  Rounds that filed 27 to 46 issues drained to 83-100% closed at matched age.
-  Two rounds near 155 issues sit at 55% and 28% closed, and clear far slower.
-  The ceiling is empirical and lies somewhere between 46 and 156. Review
-  everything you find; don't shrink the pass itself. Soft-cap what actually
-  gets filed at roughly 50: file the highest-leverage ~50, and roll the rest
-  into the report artifact instead of the tracker, so the backlog doesn't
-  outrun what a solo founder plus agents can actually absorb.
+- **File every confirmed finding. There is no filing cap.** A finding that
+  is found but not logged is wasted work. The tracker is the single durable
+  record, and later runs dedupe against it. Low-priority issues cost agent
+  attention, not founder attention: the founder does not read them, agents
+  work them down. Plan for absorption instead of capping for it: rounds
+  that filed 27 to 46 issues drained to 83-100% closed at matched age,
+  while two rounds near 155 sat at 55% and 28%. Expect a large round to
+  take longer to clear, and say so in the report. Premise re-verification
+  (see GROUND TRUTH above) handles the staleness risk of a slow-draining
+  backlog. Filing less does not.
 - **Missing tests follow Phase-0 question 3**, never a fleet's own judgment:
   - *Yes*: author the highest-leverage missing tests on branches/PRs, never
     the default branch.
