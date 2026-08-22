@@ -94,6 +94,15 @@ descriptive; see the "don't relitigate" guidance in the kit README, practice
 7, for the difference between a descriptive fix and a normative one that
 needs the founder's sign-off).
 
+**Premise re-verification: old issues go stale too, not just docs.** About a
+quarter of surviving filed issues carry a premise the code has already
+overtaken. Three real cases: one was fixed four days *before* it was filed;
+one claimed a regression test was missing when the very PR it named had
+already added it; one was refuted the day after filing. Any builder picking
+up an issue older than about two weeks re-verifies its premise against the
+running code first, before doing any work. If the premise is stale, report
+that back instead of building on it.
+
 ## PHASE 0: Kickoff gate (ask BEFORE the founder goes AFK)
 
 Four decisions govern everything this run writes, and none of them may be
@@ -444,6 +453,14 @@ what `auto` must not touch.)
   exceptions: style-guide drift under lens 11 and prompt/doc drift under the
   C2 reconcile may be corrected in place, because they only make a doc match
   shipped reality. Their normative halves never are.
+- **Absorption ceiling: soft-cap what gets FILED, not what gets reviewed.**
+  Rounds that filed 27 to 46 issues drained to 83-100% closed at matched age.
+  Two rounds near 155 issues sit at 55% and 28% closed, and clear far slower.
+  The ceiling is empirical and lies somewhere between 46 and 156. Review
+  everything you find; don't shrink the pass itself. Soft-cap what actually
+  gets filed at roughly 50: file the highest-leverage ~50, and roll the rest
+  into the report artifact instead of the tracker, so the backlog doesn't
+  outrun what a solo founder plus agents can actually absorb.
 - **Missing tests follow Phase-0 question 3**, never a fleet's own judgment:
   - *Yes*: author the highest-leverage missing tests on branches/PRs, never
     the default branch.
