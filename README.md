@@ -92,7 +92,11 @@ practices below read as instances of a rule instead of an arbitrary list.
 1. **A lesson that recurs is a missing mechanism, not a missing
    reminder.** Every lesson that became a mechanism (a hook, a lint, a
    guardrail) stopped recurring. Every lesson left as prose recurred,
-   between two and thirteen times, before it did.
+   between two and thirteen times, before it did. The working rule is
+   two strikes: on the second recorded occurrence of a lesson, convert
+   it into a mechanism (a guardrail rule, a hook, a test). If no
+   mechanism is worth building, delete the lesson. The starter
+   `CLAUDE.md` template ships this as standing rule 5.
 2. **Guards fail open.** A guard that blocks legitimate work gets
    disabled. Once disabled, it protects nothing. Build every guard to let
    real work through, or it gets switched off at the exact moment it
