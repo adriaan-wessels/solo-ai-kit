@@ -34,9 +34,10 @@ every session on the machine, including repos that never ran
 `bootstrap.ps1`.
 
 The other three hooks (`subagent-stall-check.sh`, `branch-sweep.sh`,
-`session-branch-count.sh`) read the current repo's branches. They stay
-project-level in this kit's source setup. Nothing stops you from installing
-them machine-global too, but the kit does not ship that path.
+`session-branch-count.sh`) work per repo: they read the current repo's
+branches or keep state in its `.claude/state/`. They stay project-level in
+this kit's source setup. Nothing stops you from installing them
+machine-global too, but the kit does not ship that path.
 
 **The rule: each hook gets exactly one home.** Claude Code merges hooks
 from user-level and project-level settings. It runs both sets. Wire a hook
