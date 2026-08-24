@@ -670,17 +670,19 @@ Before running anything, check the prerequisites:
 - If PowerShell refuses to run the scripts, unblock them for the
   session: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`.
 
-**Not on Claude Code or Windows?** This kit is written to be read by
-agents, not only by people. Point your own AI assistant at the repo and
-ask it to:
+**The four-step version of the tip at the top:** this kit is written
+to be read by agents, not only by people. Point your AI assistant at
+the repo and ask it to:
 
 1. Read the handbook.
-2. Say which parts apply to your stack.
+2. Say which practices adapt best to your situation, and the pros
+   and cons of each.
 3. Propose an adapted implementation.
 4. Discuss the plan with you before it builds anything.
 
-Adapting the kit is a good first exercise in the operating model it
-teaches.
+The exercise works on any stack. Not on Claude Code or Windows? It is
+also how you port the kit, and adapting it is a good first exercise
+in the operating model it teaches.
 
 **Feedback is welcome.** Open a GitHub issue for a bug, a broken step,
 or a gap in the kit. I want to hear about it.
