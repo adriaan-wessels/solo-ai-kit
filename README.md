@@ -1,5 +1,12 @@
 # Solo Founder + AI Agents: Bootstrap Kit
 
+> [!TIP]
+> **The fastest way to use this kit:** ask your AI assistant to read
+> this repo, then discuss with it which practices adapt best to your
+> situation, and the pros and cons of each. A ready-made four-step
+> version of that exercise is under [Day-one
+> bootstrap](#day-one-bootstrap) below.
+
 **Written by the agents it describes.** AI coding agents wrote every
 document, script and hook in this kit, under the operating model it
 documents. Their drafts pass the same gates the model prescribes: an
