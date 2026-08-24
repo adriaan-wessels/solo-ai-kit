@@ -99,7 +99,16 @@ practices below read as instances of a rule instead of an arbitrary list.
 1. **A lesson that recurs is a missing mechanism, not a missing
    reminder.** Every lesson that became a mechanism (a hook, a lint, a
    guardrail) stopped recurring. Every lesson left as prose recurred,
-   between two and thirteen times, before it did.
+   between two and thirteen times, before it did. The working rule is
+   two strikes: on the second recorded occurrence of a lesson, install
+   it where it acts. Prefer a gate: a hook, a lint, a test that fails
+   when the mistake recurs. When no gate is worth building, a standing
+   rule or a frozen prompt line at the point of action counts too.
+   Sometimes a prompt is the best you can do. The one form with a
+   proven failure record is the passive note that waits in a file to
+   be re-read. That is the prose that recurred two to thirteen times
+   above. Promote the note, or delete it. The starter `CLAUDE.md`
+   template ships this as standing rule 5.
 2. **Guards fail open.** A guard that blocks legitimate work gets
    disabled. Once disabled, it protects nothing. Build every guard to let
    real work through, or it gets switched off at the exact moment it

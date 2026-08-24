@@ -189,13 +189,15 @@ are specific instances of these, not a separate list.
    mechanism.
 
 5. **Two strikes: promote a recurring lesson to a mechanism, or delete
-   it.** The first time something goes wrong, write it down as prose (a
+   it.** The first time something goes wrong, write it down as a note (a
    memory file, a gotcha in this doc). That is a reminder, and reminders
    get missed under load. The **second** recorded occurrence of the same
    lesson means the reminder already failed once. At that point, do one
-   of two things: promote the lesson into a mechanism (a guardrail rule,
-   a hook, a test that fails when the mistake recurs), or delete the
-   lesson outright if it is not worth the mechanism. Do not let it sit as
-   prose for a third time. Evidence for the rule: lessons left as prose
-   recurred between two and thirteen times before anyone fixed the root
-   cause; every lesson that got a mechanism instead stopped recurring.
+   of two things: install the lesson where it acts (a hook, a test that
+   fails when the mistake recurs, or, when no gate is worth building, a
+   standing rule or frozen prompt line at the point of action), or
+   delete the lesson outright if it is not worth carrying. Do not let it
+   sit as a passive note for a third time. Evidence for the rule:
+   lessons left as passive notes recurred between two and thirteen
+   times before anyone fixed the root cause; every lesson that got a
+   mechanism instead stopped recurring.
