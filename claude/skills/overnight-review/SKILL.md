@@ -445,7 +445,7 @@ what `auto` must not touch.)
   this product is," not a coverage percentage or enterprise ceremony.
 - **Catch-and-report, don't rewrite unattended:** file survivors to the
   tracker's backlog, deduped against existing open issues, each with a
-  severity and the layer/lens. The review/test fleets surface issues; they
+  priority from the rubric below and the layer/lens. The review/test fleets surface issues; they
   don't edit the product. No new fixes or UI changes come from them beyond a
   safely-fixable regression caught in Phase 2. (Merging the founder's
   previously-approved UI dev in Phase 1 is fine; the fleets inventing new UI
@@ -473,6 +473,42 @@ what `auto` must not touch.)
     founder is away. Queue every remaining proposal into the report as a
     one-line "proposed tests" list. Never block the run waiting on an answer,
     and never let an unanswered proposal become a write.
+
+### Priority rubric (P0-P3)
+
+Give every filed finding exactly one priority. Priority answers one
+question and only one: does this block its milestone from exiting? It
+is a claim about impact, never about effort, size, or diagnostic
+confidence. A one-line fix to silent data loss is P0; a two-week
+refactor nobody can see is P3.
+
+- **P0, stop the line:** data loss or corruption, a cross-account
+  isolation breach, or a broken default branch. Orthogonal to
+  milestones; pre-empts in-flight work. Expect it to be rare. Never
+  reach for it to mean "important."
+- **P1, the milestone cannot exit without this.** For a defect: hit on
+  a normal path, no workaround. For a feature or doc: the milestone's
+  own stated exit criteria are unmet without it.
+- **P2, the milestone is materially weaker without this**, but it can
+  still exit.
+- **P3, does not affect whether the milestone exits.**
+
+Score in this order, every time. The order is load-bearing.
+
+1. **Fit gate** (proposed work only): a proposal that contradicts a
+   ratified principle or a settled strategic call is NOT low priority.
+   Close it with the principle cited, or fence it back to a planning
+   session. Filing a misfit as P3 reads as "agreed, later"; it sits on
+   the board accreting comments and gets re-proposed every few months.
+2. **The milestone-exit question:** the P0-P3 test above.
+3. **Principle floor** (shipped surfaces only): running code that
+   visibly breaks a ratified product principle cannot score below P2,
+   however cosmetic it looks. A principle breach teaches the user the
+   wrong model of the product.
+
+Why a written rubric: before it existed on the source project, review
+fleets scored per-batch, not per-issue. Two rounds a day apart scored
+the same codebase 63% P2 and then 72% P3.
 
 ## BUDGET / MODELS / STOPPING
 

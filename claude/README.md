@@ -186,6 +186,35 @@ Two things worth knowing if you adapt it:
   lens list and the gather-phase `gh` invocations (owner/project number) for
   the new project.
 
+## Guard telemetry: one log line per invocation, on every outcome path
+
+Give every guard (a hook, a lint gate, a cron) one log line per
+invocation, on every outcome path:
+`timestamp | guard | outcome | target`. Use a small fixed outcome
+vocabulary: `blocked`, `fired:<what>`, `clean`, `open:<reason>`,
+`override`. The line that matters most is the one for the common path.
+A guard that fails open without a trace is indistinguishable from a
+dead guard.
+
+The log serves both directions of the two-strikes principle (kit
+README, principle 1). It is the evidence that a guard earns its place:
+on the source project, a merge-gate hook logged its first real block
+within hours of gaining telemetry. And it is the evidence for the
+decommission test: a guard that never fires across a review window
+shows it in its own log. The kit once retired a hook for exactly this
+gap (`ci-status.sh`, see the README's anti-patterns): it kept no log
+and had no recorded catch, so nobody could tell the difference.
+
+## Corpus replay for guards that classify text
+
+A guard that classifies free text (a merge-gate hook that parses
+commands, a claim scanner) can regress silently when you tune its
+rules. Ship every such guard with a replay script that runs it against
+the full history of real past inputs and reports what changed
+classification. Run the replay before you deploy any change to the
+guard. A regression then shows up as a diff over known history, not as
+a missed catch in production.
+
 ## Why this split exists
 
 Splitting "project source" (committed, in the repo) from "how I work this
