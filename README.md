@@ -91,9 +91,9 @@ was rewritten under this directive, as the worked example.
 
 ---
 
-## Five principles behind the practices
+## Six principles behind the practices
 
-These five ideas sit under most of what follows. State them once, and the
+These six ideas sit under most of what follows. State them once, and the
 practices below read as instances of a rule instead of an arbitrary list.
 
 1. **A lesson that recurs is a missing mechanism, not a missing
@@ -107,8 +107,14 @@ practices below read as instances of a rule instead of an arbitrary list.
    Sometimes a prompt is the best you can do. The one form with a
    proven failure record is the passive note that waits in a file to
    be re-read. That is the prose that recurred two to thirteen times
-   above. Promote the note, or delete it. The starter `CLAUDE.md`
-   template ships this as standing rule 5.
+   above. Promote the note, or delete it. Every mechanism also carries
+   a decommission test: a guard that never fires across a review
+   window, or a gate the founder usually overrules, gets proposed for
+   deletion or re-scoping. Proposals only; the founder decides; guards
+   that work by deterrence get a named carve-out. And before you add a
+   rule or a procedure at all, ask: would stating one missing fact fix
+   this? A fact costs one line. A procedure costs attention forever.
+   The starter `CLAUDE.md` template ships this as standing rule 5.
 2. **Guards fail open.** A guard that blocks legitimate work gets
    disabled. Once disabled, it protects nothing. Build every guard to let
    real work through, or it gets switched off at the exact moment it
@@ -123,6 +129,16 @@ practices below read as instances of a rule instead of an arbitrary list.
 5. **Priority answers one question: does this block the milestone from
    exiting.** Not effort. Not size. A rubric that answers a different
    question stops meaning anything.
+6. **Match a mechanism's strength to its precision.** A check may block
+   only what its false-positive rate can sustain. Deterministic,
+   self-contained checks (lints, unit tests, hooks) may hard-block.
+   Noisy or environment-dependent checks (live-cloud E2E) may only trip
+   a wire, and a tripwire counts only when consumption is mandatory: a
+   green baseline, an owner, and a clock on every red. Escalate or
+   demote a check's authority as its measured precision changes; to
+   make a check harder, engineer its noise out first. The lesson that
+   earned it: a non-blocking check without mandatory consumption decays
+   to noise, and a novel failure can hide inside a known red.
 
 ---
 
@@ -367,6 +383,17 @@ value:
   alert-only. Pair it with a billing budget that alerts, never one that
   hard-stops usage: a mid-sprint spending halt costs more than the
   overage it prevents.
+- **Self-clearing reminder crons.** A scheduled workflow that reminds
+  you of a periodic ceremony files ONE reminder issue, with idempotency
+  guards: skip if the issue is already open, and skip if it closed
+  recently. The ceremony itself closes the issue. The reminder never
+  nags and never duplicates, and a missed ceremony stays visible as one
+  open issue instead of a pile.
+- **A live-drift probe.** A weekly read-only cron diffs the live
+  backend (schema, policies, grants, purge lists) against the repo's
+  declared state, and fails loud on any mismatch. Declared state and
+  live state drift apart silently; on the source project the drift
+  breached twice before this probe existed.
 - **Keepalive pings** for infrastructure that pauses when idle, such as
   free-tier databases. One authenticated read on a weekly cron. Make it
   fail loudly, so a broken keepalive is a red run rather than silence.
@@ -518,7 +545,16 @@ accumulate:
 - **New process ideas run as trials with a ledger, not adopted as
   rules.** A candidate practice gets a bounded trial with a per-instance
   ledger: findings, false positives, latency, cost. Then the founder
-  makes an explicit call: adopt, tune, or drop. Worked example: the
+  makes an explicit call: adopt, tune, or drop. For a new **review**
+  mechanism, add a detection test to the trial. Fix the pass and fail
+  criteria in writing before the first run. Seal an answer key of known
+  defects: hash it, publish the hash, reveal the key after the run. The
+  mechanism must independently re-find at least one known defect (the
+  detection gate), and the founder must accept a stated share of its
+  findings as real work (the usefulness gate). A review mechanism that
+  cannot re-find a known defect is theater. This pattern has run three
+  times on the source project, and each time it separated real signal
+  from plausible noise. Worked example: the
   source project trialed a pre-merge adversarial-review gate on feature
   PRs. Two trial waves stopped five would-ship P1 bugs with zero
   false-positive blocks, and the founder adopted the gate as a standing
@@ -529,12 +565,86 @@ accumulate:
   numbers**: thresholds written down before a cost optimization are
   stale the moment it lands.
 
+### The unrecoverables audit (default: quarterly)
+
+One class of failure gets its own periodic pass, because it does not
+fail toward a rollback. It fails toward permanent loss: a signing key,
+an encryption key, the only copy of user data. The checklist is small
+and lives in `templates/unrecoverables-audit.md`: prove every escrow by
+use, drill a real restore on real data, diff the deletion list against
+the live schema, and feed corrupted bytes to every parser that reads
+untrusted input. One day of this audit on a mature, heavily reviewed
+project found four real gaps of exactly this class.
+
 *Why:* without a scheduled look outward (what did the vendors change?)
 and inward (what did our own process quietly become?), the process
 calcifies around the constraints of its first month. The audits are
 cheap (a few agent-hours on a schedule), and each one pays: it finds
 real money or capability on the table, or it produces citations that
 permanently stop re-research.
+
+---
+
+## The proving ground
+
+*Dated 2026-08-25. The quarterly practice review (see "Periodic
+reviews") reconciles this list: when an entry's condition resolves, the
+entry is promoted into the kit, or retired with a reason.*
+
+The kit ships only what survives contact with a real build. The
+practices below are adopted and running on Sortomate, the live
+production build this kit comes from, but they have not earned a place
+in the kit yet. Each entry names its promotion condition, so you can
+see what is coming and why it is not here yet.
+
+- **Architecture review.** A periodic structural review of the codebase
+  against its own architecture map: drift, boundaries, duplication,
+  oversized components. Catch-and-report only; its detection test
+  passed on day one. *Promotes when the founder accepts most of its
+  baseline findings.*
+- **Practice review.** A quarterly meta-review that diffs the operating
+  model itself against external best practice, plus an inward lens that
+  proposes decommissions. Its first ad-hoc run produced most of this
+  section. *Promotes after its first scheduled run.*
+- **Red-lane discipline.** For an expensive non-required check such as
+  E2E, a workflow maintains one canonical red issue with a normalized
+  failure signature and a day counter. A stale red escalates and blocks
+  release cuts, not merges, and dismissals are scoped to the recorded
+  signature, so a novel failure cannot hide inside a known red.
+  *Promotes after it is built and correctly handles one real red-lane
+  episode.*
+- **Evidence packets.** Builders attach the command, the exit code, and
+  the output as proof on every verification claim, and CI warns on
+  claims without proof. *Promotes after one wave of report-only
+  piloting without false-positive noise.*
+- **Agent containment.** A canary token in the secrets file with a
+  session-end scan, plus report-only logging of credential-file reads
+  and upload-shaped commands. *Promotes after a one-week report-only
+  trial.*
+- **Size and complexity ratchet.** A lint with per-file ceilings,
+  grandfathered at adoption; raising a ceiling requires a recorded
+  reason. It caught a real cross-PR break on its first day. *Promotes
+  after a week of nobody disabling it.*
+- **Run contracts.** A builder posts goal, non-goals, stop condition,
+  evidence plan, and retry budget on the issue before coding. *Promotes
+  after one wave shows reviewers using the contracts.*
+- **Leader's-intent kickoff.** The overnight review asks the founder
+  what failure means this round, and the answers become that run's
+  grading criteria. Each report states the yield. *Promotes if the
+  yield stays above zero.*
+- **Autonomy metrics.** Time between interventions, rework rate,
+  escapes per gate, founder minutes per change, tokens per accepted
+  change. *Carries a sunset instead of a promotion condition: dropped
+  if two consecutive reviews cite them in no decision.*
+- **Staged for later stages of the source project**, listed for
+  completeness: a deletion test (an agent deletes one subsystem in a
+  throwaway copy and rebuilds it from tests and docs alone; every
+  behavior the rebuild gets wrong becomes a new test), kill switches (a
+  runtime off-switch for each surface where a defect is unrecoverable,
+  so stopping a bad build does not require shipping a new one), and an
+  agent-drivable app (the product exposes a surface agents can drive,
+  so agent testers can run real user flows). None has a promotion
+  condition yet.
 
 ---
 
@@ -640,7 +750,8 @@ analogy, and cost more than it returned.
   permanent place in the kit once it can point at evidence it caught
   something the rule alone would have missed, the same bar
   `branch-sweep.sh`'s ledger meets. Until a hook has that evidence, keep
-  the duty as a rule, not a script.
+  the duty as a rule, not a script. The guard-telemetry pattern in
+  `claude/README.md` makes that evidence cheap to collect from day one.
 
 ---
 
@@ -812,6 +923,10 @@ re-gate features without notice.
     queued and failed.
   - Pushes made with the default `GITHUB_TOKEN` do not trigger CI. Use
     a scoped PAT for the update-branch push.
+  - Leave workflow scope off that PAT on purpose. The train then cannot
+    advance a PR that touches workflow files, and those PRs need a
+    founder-scoped direct merge. That is by design: the automation
+    cannot rewrite the automation.
   - Give the train a way past a stuck head. When the front PR cannot
     proceed, skip it and update the next eligible PR; otherwise one
     stuck PR parks the whole queue. (Learned 2026-08-15.)

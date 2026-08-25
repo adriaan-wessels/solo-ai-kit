@@ -58,8 +58,13 @@ reasoning effort) against the PR diff plus its issue context:
 
 **Disposition.**
 
-- Confirmed P0/P1 → blocking. The builder fixes before merge. A fix that
-  changes behavior gets one verifier re-review before arming.
+- Confirmed P0/P1 → blocking. The builder fixes before merge.
+- **Arming a merge ends the review. Disarm before any fix round
+  starts.** An armed PR merges the builder's next green push instantly,
+  reviewed or not. "Armed" and "reviewed" are two separate facts.
+- **A fix round that answers a P0 or P1 finding gets one delta
+  re-review before arming.** Scope the delta to the fixes themselves
+  and to new defects the fixes introduce. Fix rounds are diffs too.
 - P2/P3 or advisory → note on the PR; file an issue if warranted; do not
   block.
 - Reviewer disagreement → the coordinator adjudicates.
@@ -80,6 +85,17 @@ The founder reads the ledger and decides: adopt as a standing
 or drop. Record the decision on the trial's issue. The issue is the
 decision-of-record; a standing rule then points at it instead of
 restating it.
+
+## Calibration ledger: keep every overrule
+
+Reviewers re-guess the founder's bar every round, and each overrule is
+training data that usually gets thrown away. Keep a small tracked file.
+Record every founder or coordinator overrule of a reviewer verdict:
+date, finding, verdict, ruling, lesson. Paste the recent disagreements
+into future reviewer prompts as worked examples, so the next reviewer
+inherits the bar instead of guessing at it. The first live entries on
+the source project each carry a lesson; one records a reviewer proven
+wrong by interval arithmetic.
 
 ## Lessons from running the gate
 
@@ -112,4 +128,7 @@ adopted. Fold them in wherever you adapt this template.
 - **A fix round needs its own review, not a rubber stamp.** Two P1
   defects in one week were introduced by the repair, not by the original
   bug. Treat a post-finding fix as a new diff to review, not a patch to a
-  diff someone already cleared.
+  diff someone already cleared. The delta round earns its keep: on
+  2026-08-25 one delta re-review caught a P1 that the fix round itself
+  had introduced, and a second delta round on the same PR caught a
+  data-move hazard.
