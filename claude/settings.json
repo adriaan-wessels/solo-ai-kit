@@ -8,6 +8,11 @@
             "type": "command",
             "command": "node .claude/hooks/guardrail.js",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node .claude/hooks/pr-merge-gate.js",
+            "timeout": 15
           }
         ]
       }

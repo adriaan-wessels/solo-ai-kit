@@ -65,6 +65,10 @@ reasoning effort) against the PR diff plus its issue context:
 - **A fix round that answers a P0 or P1 finding gets one delta
   re-review before arming.** Scope the delta to the fixes themselves
   and to new defects the fixes introduce. Fix rounds are diffs too.
+- **One disposition per heading line.** Put the disposition, and nothing
+  else, on the gate comment's heading line. Keep fix-round history in the
+  body. A heading that announces a fix round and an arm together is
+  ambiguous, to a reader and to any tool that reads the record.
 - P2/P3 or advisory → note on the PR; file an issue if warranted; do not
   block.
 - Reviewer disagreement → the coordinator adjudicates.
@@ -110,7 +114,8 @@ adopted. Fold them in wherever you adapt this template.
   instantly on a commit nobody had reviewed. Two P2 findings shipped.
   Treat "armed" and "reviewed" as two separate facts. Disarm before a fix
   round starts, and only re-arm after the fix gets its own review (see
-  below).
+  below). The kit ships a hook for this one lesson: see "The mechanism for
+  the arming lesson" at the end of this file.
 - **Reviewers must re-run the claim, not read the PR body.** A reviewer
   who reads a test's description and takes its word for it will pass a
   vacuous test. A reviewer who reintroduces the defect and watches
@@ -132,3 +137,44 @@ adopted. Fold them in wherever you adapt this template.
   2026-08-25 one delta re-review caught a P1 that the fix round itself
   had introduced, and a second delta round on the same PR caught a
   data-move hazard.
+
+## The mechanism for the arming lesson: `pr-merge-gate.js`
+
+The first lesson above is the only one here with a shipped mechanism.
+`claude/hooks/pr-merge-gate.js` is a `PreToolUse` hook. Before an explicit
+`gh pr merge` runs, it reads the PR's most recent `## ...gate...` comment,
+and it denies the merge when that comment is not a clean, current arm.
+Wire it from `claude/settings.json`. The hook's own header carries the
+detection rules and the override. It is the kit's first shipped instance
+of the two-strikes rule (kit README, principle 1): the arming lesson was
+written down as prose, it recurred, and then it became a hook.
+
+**Read this limit before you adopt it. The hook protects explicit merge
+commands, and it does that demonstrably well. It does not protect against
+a standing auto-merge that fires later.** `gh pr merge --auto` is a
+standing instruction. When a later push turns the checks green, GitHub
+merges on its own servers. No tool call happens at that moment, so a
+`PreToolUse` hook never runs and cannot object. Across a five-day window
+on the source project, about 23 PRs merged and only about 11 merge
+commands reached the hook. The rest merged server-side. That is the half
+this hook cannot see.
+
+For the half it does see, the record after those five days is 19 logged
+invocations: 2 blocks, 6 clean passes, 6 fail-opens, 1 disarm passthrough,
+0 overrides. Both blocks were correct. Each one refused a merge whose
+newest gate comment announced a fix round instead of an approval, and each
+PR merged less than a minute later, once a clean arming comment was
+posted. No legitimate merge was stopped, and no override was recorded.
+That is the evidence bar the kit sets for a hook (kit README,
+"Anti-patterns learned the hard way").
+
+One of the two blocks cost a round trip, on a heading that announced a fix
+round and an arm together. The heading was genuinely ambiguous, so denying
+it is correct by design. The "one disposition per heading line" rule under
+**Disposition** above removes that friction, and it is the only friction
+the log shows.
+
+The mechanism that would close the server-side gap is a SHA-scoped
+`review-gate` commit status, added to the branch protection rules. It puts
+the check where the merge happens. That is the known next step. It is not
+proven yet, so the kit does not ship it.
