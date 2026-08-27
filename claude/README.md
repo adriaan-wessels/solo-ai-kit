@@ -33,11 +33,11 @@ and wire them in `~/.claude/settings.json`. A machine-global install covers
 every session on the machine, including repos that never ran
 `bootstrap.ps1`.
 
-The other three hooks (`subagent-stall-check.sh`, `branch-sweep.sh`,
-`session-branch-count.sh`) work per repo: they read the current repo's
-branches or keep state in its `.claude/state/`. They stay project-level in
-this kit's source setup. Nothing stops you from installing them
-machine-global too, but the kit does not ship that path.
+The other four hooks (`subagent-stall-check.sh`, `branch-sweep.sh`,
+`session-branch-count.sh`, `pr-merge-gate.js`) work per repo: they read the
+current repo's branches or PRs, or keep state in its `.claude/state/`. They
+stay project-level in this kit's source setup. Nothing stops you from
+installing them machine-global too, but the kit does not ship that path.
 
 **The rule: each hook gets exactly one home.** Claude Code merges hooks
 from user-level and project-level settings. It runs both sets. Wire a hook
@@ -46,10 +46,14 @@ evaluates the same Bash call twice. A doubled `agent-ledger.js` writes two
 ledger entries per start or stop. A doubled `prompt-context.js` injects two
 context blocks into the same prompt. Pick one home per hook and stay there.
 
-**State paths follow the hook's own location.** Each JS hook resolves its
-state directory relative to itself: `path.join(__dirname, '..', 'state')`.
-No code change is needed to switch modes. A project-level install writes to
-`.claude/state/`. A machine-global install writes to `~/.claude/state/`.
+**State paths follow the hook's own location.** Each of the four
+machine-global-capable JS hooks resolves its state directory relative to
+itself: `path.join(__dirname, '..', 'state')`. No code change is needed to
+switch modes. A project-level install writes to `.claude/state/`. A
+machine-global install writes to `~/.claude/state/`. `pr-merge-gate.js` is
+the exception, and it is project-level only. It resolves the repo root
+through `CLAUDE_PROJECT_DIR`, so a subagent working in a worktree does not
+write its audit row into a directory that dies with the worktree.
 
 `scripts/bootstrap.ps1` dedupes automatically. When it copies `claude/`
 into a new project, it checks `~/.claude/settings.json` first. It drops any
@@ -121,6 +125,21 @@ duplicates.
   when either passes a threshold (15 branches / 2 extra worktrees). Pure
   local git, no fetch, no `gh`, so it costs nothing on the session-start
   path.
+- **`hooks/pr-merge-gate.js`**: a `PreToolUse` hook that DENIES an explicit
+  `gh pr merge` when the PR's most recent `## ...gate...` comment is not a
+  clean, current arm. It is the mechanism for the review gate's first lesson
+  (`templates/adversarial-review-gate.md`: arming ends the review, so disarm
+  before a fix round), and the kit's first shipped instance of the
+  two-strikes rule. **Know its limit before you adopt it: it protects
+  explicit merge commands, and it does that demonstrably well; it does not
+  protect against a standing auto-merge that fires later.** GitHub merges
+  that one server-side, where no tool call happens and no `PreToolUse` hook
+  can run. On the source project, about 23 PRs merged in a five-day window
+  and only about 11 merge commands reached the hook. Over the same window it
+  logged 19 invocations: 2 blocks (both correct), 6 clean passes, 6
+  fail-opens, 1 disarm passthrough, 0 overrides. Project-level only. The
+  header explains the detection rules, the override, and the SHA-scoped
+  commit status that would close the server-side gap.
 
 ## The delivery gotcha that makes or breaks all of these
 
@@ -198,8 +217,9 @@ dead guard.
 
 The log serves both directions of the two-strikes principle (kit
 README, principle 1). It is the evidence that a guard earns its place:
-on the source project, a merge-gate hook logged its first real block
-within hours of gaining telemetry. And it is the evidence for the
+the kit's own `pr-merge-gate.js` logged its first real block within
+hours of gaining telemetry, and that log is what later proved it had
+earned a permanent place here. And it is the evidence for the
 decommission test: a guard that never fires across a review window
 shows it in its own log. The kit once retired a hook for exactly this
 gap (`ci-status.sh`, see the README's anti-patterns): it kept no log
