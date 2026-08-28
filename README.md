@@ -891,8 +891,11 @@ the prerequisites above.
 - Creates the local project directory and initializes a git repo.
 - Copies `templates/CLAUDE.md`, `templates/pull_request_template.md`,
   and `templates/ci/generic-ci.yml` into the new project, and
-  substitutes the project name into the placeholders it can safely
-  fill.
+  substitutes the project name where the templates mark it. Every other
+  `<PLACEHOLDER: ...>` marker survives the copy on purpose. A marker you
+  can see beats a value the script guessed. The copied CI workflow
+  triggers on `master` and `main`, because a stock `git init` on Windows
+  produces `master` and a workflow that names only `main` never runs.
 - Copies `claude/` into the new project's `.claude/` **on disk only**.
   It is never committed (it goes into `.gitignore`). This matches the
   convention that the automation layer is a personal, local tool, not
@@ -907,9 +910,17 @@ the prerequisites above.
   the default Status field and recreates it: same field name, right
   values.)
 - Enables squash auto-merge on the repo.
-- Sets branch protection on the default branch: required status checks
-  (a placeholder; fill in the real CI job name once the first run
-  exists), `enforce_admins` on, force pushes and branch deletion off.
+- Sets branch protection on the default branch: `enforce_admins` on,
+  force pushes off, branch deletion off. Those three need no CI run, so
+  they go on during the bootstrap run. The required status check is the
+  one part that has to wait, because you cannot require a check name
+  that no run has produced yet. The script prints that as a follow-up
+  and the repo is protected in the meantime.
+- Leaves "require branches to be up to date" (`strict`) **off**. On a
+  personal private repo the merge queue is unavailable at any price, and
+  strict protection then starves a green auto-merge-armed PR silently
+  whenever another PR lands first. See "Platform constraints worth
+  knowing up front". Turn it on only alongside a merge-train workflow.
 
 Hooks can install two ways: per project (bootstrap's default) or once,
 machine-global. When a hook is already installed machine-global, bootstrap
@@ -966,9 +977,10 @@ the script prints this checklist at the end of each run:
    review (see "Periodic reviews"), which batches upgrades into
    deliberate issues. `templates/ci/dependabot.yml.example` remains for
    projects that want the PR stream anyway.
-3. **After the first CI run:** fill the real required-check name into
-   branch protection. The script also prints this as a per-run
-   follow-up.
+3. **After the first CI run:** add the real required-check name to the
+   branch-protection rule the script already created. Leave "Require
+   branches to be up to date" off unless you run a merge-train workflow.
+   The script also prints this as a per-run follow-up.
 
 ### Platform constraints worth knowing up front
 
