@@ -10,7 +10,7 @@
 // ADVERSARIAL NOTE (the source project recorded "green tests can encode the
 // bug" six times): every assertion below was verified to FAIL against a deliberately
 // broken note() before being kept. See the --prove flag, which reintroduces
-// four real defects and asserts the suite goes red for each. A selftest that
+// seven real defects and asserts the suite goes red for each. A selftest that
 // cannot fail is not evidence.
 
 const path = require('path');
@@ -32,6 +32,25 @@ if (process.argv.includes('--prove')) {
     ['annotates drafts', (s) => s.replace(/if \(p\.isDraft\) return '';[^\n]*\n/, '')],
     ['claims an unknown conclusion is green', (s) =>
       s.replace(/if \(!verdicts\.every[^\n]*\n/, '')],
+
+    // probeSection defects. Each names the assertion that must report it,
+    // so a defect that goes uncaught points at a specific missing test
+    // rather than at the suite in general.
+    ['probe summary reads the FIRST output line  (-> "the summary is the LAST line")',
+      (s) => s.replace(/lines\[lines\.length - 1\]/, 'lines[0]')],
+    ['a failing harness is reported as passing  (-> "a failing harness is called out")',
+      (s) => s.replace(
+        /return `PROBES NEED ATTENTION[^`]*`;/,
+        "return 'Probes: ' + (lines.length ? lines[lines.length - 1].trim() : '(no output)');"
+      )],
+    // \r?\n throughout: this repo checks out CRLF on Windows and LF on the
+    // Linux runner. A pattern anchored to a bare \n matches in CI and misses
+    // locally, so the injection would go UNPROVEN on one platform only.
+    ['a harness that cannot run is swallowed  (-> "a hanging harness is reported")',
+      (s) => s.replace(
+        / {2}if \(r\.error \|\| r\.status === null\) \{[\s\S]*?\r?\n {2}\}\r?\n/,
+        ''
+      )],
   ];
 
   let proven = 0;
@@ -60,7 +79,7 @@ if (process.argv.includes('--prove')) {
   process.exit(proven === defects.length ? 0 : 1);
 }
 
-const { note } = require(SRC);
+const { note, probeSection } = require(SRC);
 
 let pass = 0;
 let fail = 0;
@@ -152,6 +171,70 @@ ok(
   'an unknown conclusion is not claimed as green',
   note({ ...green, statusCheckRollup: [done('SOMETHING_NEW')] }) === ''
 );
+
+// ---------------------------------------------------------------------------
+// probeSection(): running a project's own re-check harness.
+//
+// The behaviour that matters here is what happens when the harness does NOT
+// simply pass. A harness that cannot run must be reported, because "no probes
+// here" and "the probes are broken" reading the same is how a dead check
+// survives. Every case below builds a real harness on disk and runs it.
+
+const fsx = require('fs');
+const osx = require('os');
+
+function fixture(body) {
+  const dir = fsx.mkdtempSync(path.join(osx.tmpdir(), 'probe-fixture-'));
+  if (body !== null) {
+    fsx.mkdirSync(path.join(dir, '.claude', 'probes'), { recursive: true });
+    fsx.writeFileSync(path.join(dir, '.claude', 'probes', 'run-all.js'), body);
+  }
+  return dir;
+}
+
+ok('a project with no harness says nothing', probeSection(fixture(null)) === '');
+
+ok(
+  'a passing harness is reported on one line',
+  probeSection(fixture('console.log("noise");console.log("Result: every note holds.")')) ===
+    'Probes: Result: every note holds.'
+);
+
+ok(
+  'the summary is the LAST line, not the first',
+  !/noise/.test(
+    probeSection(fixture('console.log("noise");console.log("Result: every note holds.")'))
+  )
+);
+
+const failing = probeSection(
+  fixture('console.log("bash-heredoc: STALE");process.exit(1)')
+);
+ok('a failing harness is called out', /PROBES NEED ATTENTION \(exit 1\)/.test(failing));
+ok('a failing harness shows its full output', /bash-heredoc: STALE/.test(failing));
+
+ok(
+  'a harness that exits 0 silently is not reported as holding',
+  probeSection(fixture('process.exit(0)')) === 'Probes: (no output)'
+);
+
+// A crash is not a pass. Node exits non-zero on an uncaught throw, so this
+// lands in the same branch as a red harness rather than being swallowed.
+ok(
+  'a harness that crashes is called out',
+  /PROBES NEED ATTENTION/.test(probeSection(fixture('throw new Error("boom")')))
+);
+
+// The timeout branch, exercised for real. Without the env override this test
+// would take twenty seconds, so the branch would never be run and would rot.
+process.env.CLAUDE_PROBE_TIMEOUT_MS = '250';
+delete require.cache[require.resolve(SRC)]; // the constant is read at load
+const { probeSection: slowProbe } = require(SRC);
+ok(
+  'a hanging harness is reported, not silently skipped',
+  /timed out/.test(slowProbe(fixture('setTimeout(() => {}, 60000)')))
+);
+delete process.env.CLAUDE_PROBE_TIMEOUT_MS;
 
 console.log('');
 console.log(pass + ' passed, ' + fail + ' failed');

@@ -139,9 +139,19 @@ duplicates.
   short enough to bound how stale a check-state claim can be right after a
   push. Read the header before adding sections: anything on this path has
   to be cheap.
+
+  It also runs a project's own re-check harness, if the project has one at
+  `.claude/probes/run-all.js`, and reports the verdict. The contract is
+  deliberately thin so the kit does not own the harness's format: exit 0
+  means every claim holds, a non-zero exit prints the whole output, and the
+  last line of stdout is the summary. This runs OUTSIDE the cache, because
+  a probe result is a freshness check and a cached freshness check reports
+  a stale verdict as a current one. A harness that cannot run is reported
+  rather than skipped: "no probes here" and "the probes are broken" must
+  not look the same, or the second hides behind the first indefinitely.
 - **`hooks/session-start.selftest.js`**: 16 assertions over that
   annotation. The behaviour is a judgement rather than a fetch, so it is
-  testable without the network. `--prove` reintroduces four real defects
+  testable without the network. `--prove` reintroduces seven real defects
   and requires the suite to go red for each one. CI runs both, because a
   suite that cannot fail is not evidence.
 - **`hooks/branch-sweep.sh`**: mechanical cleanup of provably-dead local
