@@ -289,7 +289,13 @@ not looking. The mechanism is a small stack of guardrails:
   to break a feature PR before auto-merge arms on it. A confirmed P0 or
   P1 finding blocks the merge. The protocol is in
   `templates/adversarial-review-gate.md`, with the fuller story under
-  "Periodic reviews" below.
+  "Periodic reviews" below. The kit also ships the one mechanism that
+  enforces the gate's hardest rule: `claude/hooks/pr-merge-gate.js`
+  refuses an explicit `gh pr merge` when the PR's newest gate comment is
+  not a clean, current arm. It is the kit's first shipped instance of
+  principle 1, and it protects only half the surface. A standing
+  `--auto` merge fires on GitHub's servers where no hook can object.
+  The hook's own header and the template state that limit.
 - **Squash auto-merge on green CI.** A PR that passes its required
   checks merges itself. Nobody has to be awake to click the button.
 - **Explicit, scoped AI merge authority.** The founder grants agents
@@ -483,7 +489,11 @@ Things this model does **not** adopt, on purpose:
 - No `CONTRIBUTING.md`. There are no external contributors to onboard.
 - No `CODEOWNERS`. There is one owner; the file would be a no-op.
 - No issue templates. Agents write structured issues directly. A
-  template optimizes for humans filling out a form.
+  template optimizes for humans filling out a form. A **pull-request**
+  template is a different thing and the kit does ship one
+  (`templates/pull_request_template.md`). It carries the
+  declined-test-level checkbox that practice 4 depends on, which is a
+  claim an agent must make, not a form a human fills in.
 - No standups. See practice 6; there is no team to synchronize.
 - No estimates and no story points. A solo founder plus agents does not
   need capacity planning against a velocity metric.
@@ -685,7 +695,7 @@ project.
 | 2. `CLAUDE.md` as operating manual | **Portable** | |
 | 3. Correction-capture memory loop | **Portable** | |
 | 4. Tests as agent-verification infrastructure | **Portable** | Take the argument about test shape, not the counts. |
-| 5. Guardrails | **Portable** | `guardrail.js`, `prompt-context.js`, and `agent-ledger.js` are Node, and call no `gh`. They run anywhere Node runs. |
+| 5. Guardrails | **Adapt** | `guardrail.js`, `prompt-context.js`, and `agent-ledger.js` are Node, and call no `gh`. They run anywhere Node runs. `pr-merge-gate.js` does call `gh`, so it needs a GitHub-shaped host or a rewrite. Branch protection and auto-merge are code-host features, not portable code. |
 | 6. AI-native ceremonies | **Solo** | It removes ceremonies that a team still needs. |
 | 7. Judgment gates | **Adapt** | A team must name an owner per gate. One editor makes the owner implicit. |
 | 8. Automation shaped by cost | **Portable** | It applies to developer seconds as readily as to CI spend. |
@@ -703,12 +713,21 @@ six-developer team, on a stack with no GitHub and no PowerShell in it.
 The verdicts above match what survived that reading. One data point sets
 the shape of the table. It does not prove every row.
 
-That reading also corrected the kit twice, and both corrections are now
-fixed. It named guard telemetry as something to copy from `guardrail.js`,
-where it did not exist. And it read practice 10 as omitting a PR
-template, which the kit in fact ships. Both faults were ours: a document
-that describes a pattern the code does not implement, and an omission
-list that reads as longer than it is.
+That reading also corrected the kit twice. It named guard telemetry as
+something to copy from `guardrail.js`, where it did not exist. And it
+read practice 10 as omitting a PR template, which the kit in fact ships.
+Both faults were ours: a document that describes a pattern the code does
+not implement, and an omission list that reads as longer than it is.
+
+The first of those classes was not a one-off. A later self-review found
+four more, all on the day-one path: a bootstrap that substituted nothing
+while this file said it did, branch protection this file announced and
+the script never applied, a shipped CI workflow that could not trigger
+on the branch the script creates, and a review mechanism weaker than the
+practice that points at it. Each one is fixed. The class is not, and by
+principle 1 that makes it a missing mechanism rather than four more
+corrections. The kit does not ship that mechanism yet, and says so here
+rather than letting the next reader assume the docs and the code agree.
 
 ---
 
@@ -998,7 +1017,11 @@ re-gate features without notice.
   must build your own updater: a small "merge train" workflow. Caveats
   for that workflow, each learned from a failure:
   - GitHub's `schedule` cron is best-effort. Trigger on `workflow_run`
-    instead.
+    instead. This applies to the merge train, not to scheduled work in
+    general. Best-effort timing is fine for the nightly lanes, reminder
+    crons, drift probes and keepalives in practice 8, where an hour of
+    slip costs nothing. It is not fine for a trigger that has to fire
+    promptly after another event.
   - Filter to *required* checks, or one red non-gating check starves
     the queue.
   - Poll check-run conclusions, not PR state; `blocked` conflates
