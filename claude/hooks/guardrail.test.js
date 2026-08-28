@@ -146,6 +146,47 @@ for (const [rule, cmd] of HEREDOC_NEAR_MISSES) {
   check(`heredoc near-miss (${rule})`, !denied(r) && r.outcome === 'clean', `blocked by ${r.target}`);
 }
 
+// #48: an UNTERMINATED `<<WORD` used to mask to end-of-string, which
+// switched off every rule rather than just one. These are the disarm shapes,
+// each paired below with a bare control, because "blocked" only means
+// something if the same command blocks without the prefix too.
+const DISARM_PREFIXES = [
+  ['arithmetic left shift', 'MASK=$((1<<BITS))'],
+  ['bare unterminated <<WORD', 'cat <<NOPE'],
+  // The `<<` here is inside a quoted string. maskHeredocs runs on the RAW
+  // command, so quote masking has not removed it yet.
+  ['<< inside a quoted string', 'echo "x <<Y"'],
+];
+const DISARM_TARGETS = [
+  ['push-to-default-branch', 'git push origin master'],
+  ['git-stash-ban', 'git stash'],
+];
+
+for (const [rule, cmd] of DISARM_TARGETS) {
+  // Control first. If the bare command does not block, every prefixed case
+  // below proves nothing at all.
+  const bare = run(payload(cmd));
+  check(`disarm control: ${rule} blocks bare`, denied(bare) && bare.target === rule, `outcome=${bare.outcome} target=${bare.target}`);
+
+  for (const [pname, prefix] of DISARM_PREFIXES) {
+    const r = run(payload(`${prefix}\n${cmd}`));
+    check(
+      `#48 no disarm (${rule}) via ${pname}`,
+      denied(r) && r.target === rule,
+      `outcome=${r.outcome} target=${r.target}`,
+    );
+  }
+}
+
+// The other direction, so the fix cannot be "mask nothing, ever": a properly
+// terminated heredoc body must still be ignored. Without these, deleting
+// maskHeredocs outright would pass.
+{
+  const cmd = "git commit --file - <<-EOF\ndescribes git push origin master\n\tEOF";
+  const r = run(payload(cmd));
+  check('terminated <<-EOF with an indented terminator is still masked', !denied(r) && r.outcome === 'clean', `blocked by ${r.target}`);
+}
+
 // Heredoc masking must not open a hole either: a real push AFTER the
 // terminator is outside the body and still blocks.
 {

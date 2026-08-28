@@ -196,7 +196,20 @@ function maskHeredocs(s) {
     const term = new RegExp('^[ \t]*' + m[2] + '[ \t]*$', 'm');
     const after = s.slice(nl + 1);
     const hit = after.match(term);
-    const end = hit ? nl + 1 + hit.index : s.length;
+    // An UNTERMINATED heredoc masks nothing. Masking to end-of-string here
+    // was a total disarm (#48): `<<WORD` with no matching terminator line
+    // blanked the entire rest of the command, so EVERY rule saw whitespace
+    // and nothing could match. `MASK=$((1<<BITS))` on a preceding line was
+    // enough, and so was a `<<` inside a quoted string, because this pass
+    // runs on the raw command. Measured: push-to-default-branch,
+    // git-stash-ban and the force-push case all switched off.
+    //
+    // Masking nothing is the safe direction and costs nothing real: a
+    // heredoc with no terminator is not a valid command, so there is no
+    // legitimate body to protect. The failure mode flips from "guard is
+    // off" to "guard reads text it could have ignored".
+    if (!hit) continue;
+    const end = nl + 1 + hit.index;
     for (let i = nl + 1; i < end; i++) {
       if (out[i] !== '\n' && out[i] !== '\r') out[i] = ' ';
     }
