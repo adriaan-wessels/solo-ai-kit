@@ -121,6 +121,16 @@ adopted. Fold them in wherever you adapt this template.
   vacuous test. A reviewer who reintroduces the defect and watches
   whether the test still passes will not. This single practice produced
   every catch of a false test so far.
+- **A mutation score the author ran is not evidence. Write your own
+  injection list.** The agent that wrote the code writes its tests from
+  one picture of the problem, and its injections from that same picture.
+  On the source project, a classifier caught every injection it wrote
+  for itself, and one in eight of the injections a reviewer wrote
+  against the same code. Where the mechanism parses text a real system
+  emits, take the fixtures from real logs, not from what the author
+  assumed the system emits. Make every injection name the assertion that
+  must report it, so a crash in the mutated copy does not count as a
+  catch.
 - **Name vacuous verification as an explicit hunt target.** Look
   specifically for tests that pass against the exact bug they claim to
   guard. Four turned up in one week. CI cannot reach this class on its

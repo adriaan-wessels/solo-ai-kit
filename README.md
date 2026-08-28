@@ -240,6 +240,23 @@ probe mutates code to prove the suite actually goes red. None of this
 makes the suite self-justifying. The founder's daily use is the one
 check no agent can grade.
 
+The mutation probe has a blind spot of its own. One model writes the
+code, then the tests from the same picture of the problem, then the
+injection list from that same picture. The three layers are blind in the
+same direction, and each one raises confidence in the one below. On the
+source project, a classifier caught every injection it wrote for itself,
+and one in eight of the injections a reviewing agent wrote against the
+same code. One miss was the exact case the classifier existed to catch.
+Three habits helped after that. Take the injection list from an agent
+that did not write the tests, because a self-run mutation score is
+context, not evidence. Where the code parses text that a real system
+emits, such as error strings or API responses, take the fixtures from
+real logs. Record where each one came from. Invented fixtures encode
+what the author assumed the system emits. And score the harness itself.
+Make each injected defect name the assertion that must report it.
+Otherwise a crash in the mutated copy counts as a catch, and a proof
+mode that scores on the exit code alone stops proving.
+
 **Definition of Done means: match the test level to the change.** It
 does not mean "add an E2E spec for everything." And when a change
 declines a test level, **say so in the PR, never silently**. "Verified
