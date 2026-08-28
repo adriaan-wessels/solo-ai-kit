@@ -10,7 +10,7 @@
 // ADVERSARIAL NOTE (the source project recorded "green tests can encode the
 // bug" six times): every assertion below was verified to FAIL against a deliberately
 // broken note() before being kept. See the --prove flag, which reintroduces
-// seven real defects and asserts the suite goes red for each. A selftest that
+// twelve real defects and asserts the suite goes red for each. A selftest that
 // cannot fail is not evidence.
 
 const path = require('path');
@@ -51,6 +51,30 @@ if (process.argv.includes('--prove')) {
         / {2}if \(r\.error \|\| r\.status === null\) \{[\s\S]*?\r?\n {2}\}\r?\n/,
         ''
       )],
+
+    // Added from the blind mutation run (#34). These came from agents that
+    // wrote neither this file nor session-start.js and could not read any
+    // suite, and each was verified both ways before being kept.
+    [
+      "broken-harness-drops-unverified-warning",
+      (s) => s.replace("    return 'Probes: the harness ' + why + '. ' + PROBE_UNVERIFIED;", "    return 'Probes: ' + why + '.';"),
+    ],
+    [
+      "probe-uses-process-cwd-not-hook-cwd",
+      (s) => s.replace("  const probes = probeSection(cwd);", "  const probes = probeSection(process.cwd());"),
+    ],
+    [
+      "harness-start-failure-goes-silent",
+      (s) => s.replace("    return 'Probes: the harness could not be started. ' + PROBE_UNVERIFIED;", "    return '';"),
+    ],
+    [
+      "cache-window-back-to-thirty-minutes",
+      (s) => s.replace("const CACHE_MS = 5 * 60 * 1000;", "const CACHE_MS = 30 * 60 * 1000;"),
+    ],
+    [
+      "probe-timeout-env-override-removed",
+      (s) => s.replace("const PROBE_TIMEOUT_MS = Number(process.env.CLAUDE_PROBE_TIMEOUT_MS) || 20000;", "const PROBE_TIMEOUT_MS = 20000;"),
+    ],
   ];
 
   let proven = 0;
@@ -225,6 +249,36 @@ ok(
   /PROBES NEED ATTENTION/.test(probeSection(fixture('throw new Error("boom")')))
 );
 
+// Pins `harness-start-failure-goes-silent`. The branches above cover a harness
+// that STARTED and then died (r.error, timeout, non-zero exit); this covers one
+// that never started at all — the catch around spawnSync. Returning '' there
+// makes "no probes here" and "the probes are broken" read identically, which is
+// the confusion probeSection's own comment forbids. Reached by swapping
+// spawnSync before the module re-binds it, since the module destructures it at
+// load — the same re-require trick the timeout case below uses.
+{
+  const cp = require('child_process');
+  const realSpawnSync = cp.spawnSync;
+  cp.spawnSync = () => {
+    throw new Error('EAGAIN: spawn failed');
+  };
+  delete require.cache[require.resolve(SRC)];
+  const { probeSection: unstartable } = require(SRC);
+  const withHarness = unstartable(fixture('console.log("Result: every note holds.")'));
+  const withoutHarness = unstartable(fixture(null));
+  cp.spawnSync = realSpawnSync;
+  delete require.cache[require.resolve(SRC)]; // leave the cache clean for the re-require below
+
+  ok(
+    'a harness that cannot be started at all is reported',
+    withHarness !== '' && /unverified/i.test(withHarness)
+  );
+  // Control: silence still has to mean "no harness here", or the assertion
+  // above would pass against a probeSection that returned a message for
+  // everything.
+  ok('no harness still says nothing when spawning is broken', withoutHarness === '');
+}
+
 // The timeout branch, exercised for real. Without the env override this test
 // would take twenty seconds, so the branch would never be run and would rot.
 process.env.CLAUDE_PROBE_TIMEOUT_MS = '250';
@@ -234,8 +288,137 @@ ok(
   'a hanging harness is reported, not silently skipped',
   /timed out/.test(slowProbe(fixture('setTimeout(() => {}, 60000)')))
 );
+
+// Pins broken-harness-drops-unverified-warning. A run that produced no verdict
+// has to say so in the words the agent acts on: it names the harness and
+// carries PROBE_UNVERIFIED. Otherwise the line reads as an ordinary probe
+// summary and a dead check hides inside a normal-looking report. Matching only
+// /timed out/ cannot tell those two apart, which is what makes this the
+// discriminating case.
+const timedOut = slowProbe(fixture('setTimeout(() => {}, 60000)'));
+ok(
+  'a hanging harness is reported as unverified, not as a summary',
+  /unverified/.test(timedOut) && /harness/.test(timedOut)
+);
+
+// Control: the warning must NOT appear on a healthy run, or the assertion
+// above would also pass against a hook that stamps it onto every report.
+ok(
+  'a passing harness carries no unverified warning',
+  !/unverified/.test(probeSection(fixture('console.log("Result: every note holds.")')))
+);
 delete process.env.CLAUDE_PROBE_TIMEOUT_MS;
 
 console.log('');
+// The cache window, asserted as behaviour. CACHE_MS is not exported, so this
+// runs the hook for real against a seeded cache file. claude/README.md and the
+// constant's own comment both commit to 5 minutes; 30 was abandoned once the
+// brief started carrying a check-state claim. 6 minutes against 1 minute is the
+// pair that separates the two windows — under 30 minutes both are hits.
+{
+  const { spawnSync: spawnHook } = require('child_process');
+  // Run a COPY, so `state/session-brief.json` resolves inside the sandbox and
+  // the real cache is never read or written.
+  const box = fsx.mkdtempSync(path.join(osx.tmpdir(), 'session-start-cache-'));
+  fsx.mkdirSync(path.join(box, 'hooks'), { recursive: true });
+  fsx.mkdirSync(path.join(box, 'state'), { recursive: true });
+  const hookCopy = path.join(box, 'hooks', 'session-start.js');
+  fsx.copyFileSync(SRC, hookCopy); // SRC, so --prove can inject into this too
+  const cacheFile = path.join(box, 'state', 'session-brief.json');
+
+  // The cached cwd is an empty temp dir: on a MISS the rebuild finds no GitHub
+  // repo there and prints nothing, so the marker surviving to stdout is the
+  // hit/miss signal.
+  const seeded = (ageMs, marker) => {
+    const dir = fixture(null);
+    fsx.writeFileSync(
+      cacheFile,
+      JSON.stringify({ [dir]: { ts: Date.now() - ageMs, text: marker } })
+    );
+    const r = spawnHook(process.execPath, [hookCopy], {
+      input: JSON.stringify({ cwd: dir }),
+      encoding: 'utf8',
+    });
+    return String(r.stdout || '');
+  };
+
+  // Control first: inside the window the brief is served from cache, so a miss
+  // below means the window expired rather than that caching never happens.
+  ok('a 1-minute-old brief is served from cache', /CACHE-FRESH/.test(seeded(60 * 1000, 'CACHE-FRESH')));
+  ok('a 6-minute-old brief is past the window', !/CACHE-STALE/.test(seeded(6 * 60 * 1000, 'CACHE-STALE')));
+}
+
+
+
+// Defect: the CLAUDE_PROBE_TIMEOUT_MS override dropped, hard-wiring
+// PROBE_TIMEOUT_MS to 20000. The timeout assertion above still passes then —
+// it just takes twenty real seconds — so nothing catches the loss of the one
+// thing that comment promises. Elapsed time is the only discriminator: the
+// timed-out verdict has to arrive far inside the default. The fast-harness
+// control runs under the SAME small override, so this cannot pass by way of a
+// probeSection that reports a timeout for everything.
+{
+  process.env.CLAUDE_PROBE_TIMEOUT_MS = '1000';
+  delete require.cache[require.resolve(SRC)]; // the constant is read at load
+  const { probeSection: capped } = require(SRC);
+
+  const started = Date.now();
+  const verdict = capped(fixture('setTimeout(() => {}, 60000)'));
+  const elapsed = Date.now() - started;
+  ok(
+    'the timeout override is honoured: a hang is reported well inside the 20s default',
+    /timed out/.test(verdict) && elapsed < 8000
+  );
+
+  ok(
+    'the same small override does not time out a harness that finishes',
+    capped(fixture('console.log("Result: fine.")')) === 'Probes: Result: fine.'
+  );
+
+  delete process.env.CLAUDE_PROBE_TIMEOUT_MS;
+}
+
+
+// Pins `probe-uses-process-cwd-not-hook-cwd`: the hook must look for the
+// harness at the cwd the SessionStart payload supplies, not at whatever
+// directory the hook PROCESS happens to be started in — the hooks install
+// machine-global, so the payload is the only thing that names the project.
+// Every probeSection() case above passes a directory in by hand, so a call site
+// that reads process.cwd() instead is invisible to them; only running the hook
+// end to end, with the two directories deliberately different, discriminates.
+// The hook is copied into a temp tree first so its cache write lands there
+// instead of in the repo's own claude/state.
+{
+  const { spawnSync: spawnHook } = require('child_process');
+  const hookHome = fsx.mkdtempSync(path.join(osx.tmpdir(), 'ss-hook-'));
+  fsx.mkdirSync(path.join(hookHome, 'hooks'), { recursive: true });
+  const hookCopy = path.join(hookHome, 'hooks', 'session-start.js');
+  // SRC, not the pristine file: under --prove the module under test is a mutant.
+  fsx.writeFileSync(hookCopy, fsx.readFileSync(SRC, 'utf8'));
+
+  const withProbes = fixture('console.log("Result: probes ran in the payload cwd.")');
+  const noProbes = fixture(null);
+  const runHook = (payloadCwd, processCwd) =>
+    spawnHook(process.execPath, [hookCopy], {
+      input: JSON.stringify({ cwd: payloadCwd }),
+      cwd: processCwd,
+      encoding: 'utf8',
+    }).stdout || '';
+
+  ok(
+    'probes are found at the payload cwd, not the hook process cwd',
+    /Probes: Result: probes ran in the payload cwd\./.test(runHook(withProbes, noProbes))
+  );
+
+  // Control, the other direction: a harness sitting at the process cwd must NOT
+  // be reported when the payload names a project that has none. Without it the
+  // assertion above would also hold for a hook that reports any harness it can
+  // reach from anywhere.
+  ok(
+    'a payload cwd with no harness stays silent even when the process cwd has one',
+    !/Probes:/.test(runHook(noProbes, withProbes))
+  );
+}
+
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

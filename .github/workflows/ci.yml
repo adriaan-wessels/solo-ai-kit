@@ -6,8 +6,10 @@
 # Two things run here, cheapest first:
 #   1. a syntax check over every script the kit ships, and
 #   2. the replay harnesses and selftests, which are the only real test
-#      suites here: guardrail.test.js, subagent-stall-check.test.sh and
-#      session-start.selftest.js (which also runs its own --prove pass).
+#      suites here: guardrail.test.js, subagent-stall-check.test.sh,
+#      session-start.selftest.js and pr-merge-gate.test.js. Each JS suite
+#      also runs a --prove pass, which reintroduces real defects and requires
+#      the suite to go red for each: a suite that cannot fail is not evidence.
 #
 # Scope note, kept honest on purpose: this covers claude/ and scripts/ only.
 # templates/ is excluded because those files carry <PLACEHOLDER> markers and
@@ -94,6 +96,14 @@ jobs:
       - name: Guardrail replay harness
         run: node claude/hooks/guardrail.test.js
 
+      # The slowest step here, and the one worth the wall clock: it
+      # reintroduces ten real defects and requires the suite to go red for
+      # each. The defect list came from agents that wrote neither the hook
+      # nor the suite and could not read any test file, which is what
+      # practice 4 asks for (#34). About 90s locally.
+      - name: Guardrail suite can fail
+        run: node claude/hooks/guardrail.test.js --prove
+
       - name: Stall-check replay harness
         run: bash claude/hooks/subagent-stall-check.test.sh
 
@@ -101,7 +111,7 @@ jobs:
         run: node claude/hooks/session-start.selftest.js
 
       # The suite above is evidence only if it can fail. --prove reintroduces
-      # seven real defects and requires the suite to go red for each one, so a
+      # twelve real defects and requires the suite to go red for each one, so a
       # selftest that has quietly stopped asserting anything fails here
       # instead of passing green forever (README, principle 3).
       - name: Session-start selftest can fail
