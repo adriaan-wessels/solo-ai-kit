@@ -1,0 +1,294 @@
+#!/usr/bin/env node
+// Replay harness for pr-merge-gate.js, per claude/README.md ("Corpus replay
+// for guards that classify text"). Run it before you change any rule here:
+//
+//   node claude/hooks/pr-merge-gate.test.js
+//
+// This hook classifies free text in two places at once, which is why it needs
+// this more than most: it decides whether a COMMAND is a merge attempt, and
+// it decides whether a PR COMMENT arms or blocks that merge. Either can
+// regress silently while the other still looks right.
+//
+// The hook's own header already invited this ("the classifier helpers are
+// exported, so you can replay this hook against your own PR history"). It
+// shipped without one. It is the kit's newest guard and, until this file, the
+// only text-classifying guard with no replay at all.
+//
+// WHAT THIS ASSERTS, and one thing it deliberately does NOT fix:
+//
+// The inline env-var prefix bypass (issue #17) is a KNOWN, DOCUMENTED limit,
+// not an oversight. The hook's header says widening BOUNDARY would close it
+// and deliberately declines, because widening also widens what the hook
+// blocks and the hook's measured record was gathered without that change.
+// So this harness ASSERTS THE CURRENT BEHAVIOUR rather than asserting the
+// behaviour we might prefer. That turns a limit described in prose into a
+// limit measured by a test: if someone widens BOUNDARY, these cases fail and
+// force the change to be deliberate, with the record re-measured. A guard's
+// documented edge should fail loudly when it moves, not drift quietly.
+//
+// A KNOWN-GOOD CONTROL runs first. If it stops passing, distrust every other
+// result in this file: it means the harness is not exercising the hook.
+//
+// WHAT THIS DOES NOT COVER, stated plainly because a test suite that hides
+// its own gap is the thing this kit warns about. These cases exercise the
+// EXPORTED classifiers. They do not run `main()`, so they cannot catch a
+// regression in how main() wires those classifiers together. Measured, not
+// assumed: replacing `maskQuoted(cmd)` with `cmd` inside main() leaves every
+// case below passing. Covering that needs the hook run as a subprocess
+// against a real PR, which is not something CI can do offline. Until then,
+// treat a green run here as "the classifiers are right", never as "the hook
+// is right".
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFileSync } = require('child_process');
+
+// --prove points this at a deliberately broken copy. Normal runs use the
+// shipped hook.
+const HOOK_SRC = path.join(__dirname, 'pr-merge-gate.js');
+const HOOK = process.env.PR_MERGE_GATE_PATH || HOOK_SRC;
+
+// ---------------------------------------------------------------------------
+// --prove: the suite is evidence only if it can fail.
+//
+// Reintroduces each defect these cases exist to catch and requires the suite
+// to go RED for every one. A suite that has quietly stopped asserting
+// anything fails here instead of passing green forever (README, principle 3).
+//
+// Each mutation carries its own control: if the anchor text is not found, the
+// mutation never applied, and an unapplied mutation is indistinguishable from
+// a test that missed it. It reports as the REASSURING result, so it is
+// treated as a hard failure rather than a pass.
+// ---------------------------------------------------------------------------
+if (process.argv.includes('--prove')) {
+  const src = fs.readFileSync(HOOK_SRC, 'utf8');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-prove-'));
+  const MUTATIONS = [
+    [
+      'widening BOUNDARY to swallow inline assignments (issue #17)',
+      String.raw`const BOUNDARY = '(?:^|[;&|\\r\\n])\\s*';`,
+      String.raw`const BOUNDARY = '(?:^|[;&|\\r\\n])\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*';`,
+    ],
+    [
+      'a BLOCK disposition no longer beats an arm in the same body',
+      String.raw`const BLOCK_RE = /\brouted\b|\bBLOCK\b|\bfix round\b|\bbefore (arming|merge)\b/i;`,
+      String.raw`const BLOCK_RE = /\bNEVERMATCHTHIS\b/i;`,
+    ],
+    [
+      'a merge-in from the default branch counts as a new change',
+      String.raw`const SYNC_COMMIT_RE = /^Merge (branch|remote-tracking branch|pull request)\b/i;`,
+      String.raw`const SYNC_COMMIT_RE = /^NEVERMATCHTHIS/i;`,
+    ],
+    [
+      'the merge trigger becomes case-sensitive',
+      String.raw`const GH_MERGE_RE = new RegExp(BOUNDARY + '(gh\\s+pr\\s+merge\\b)', 'i');`,
+      String.raw`const GH_MERGE_RE = new RegExp(BOUNDARY + '(gh\\s+pr\\s+merge\\b)');`,
+    ],
+    [
+      'the cheap prefilter stops recognising the wrapper script',
+      String.raw`const CHEAP_PREFILTER_RE = /gh\s+pr\s+merge|safe_merge\.sh/i;`,
+      String.raw`const CHEAP_PREFILTER_RE = /gh\s+pr\s+merge/i;`,
+    ],
+  ];
+
+  const runAgainst = (hookPath) => {
+    try {
+      execFileSync('node', [__filename], {
+        encoding: 'utf8',
+        env: { ...process.env, PR_MERGE_GATE_PATH: hookPath },
+      });
+      return 0;
+    } catch (e) {
+      return e.status === undefined ? 1 : e.status;
+    }
+  };
+
+  let bad = 0;
+
+  // Control: the suite must PASS against the untouched hook. Without this, a
+  // suite broken in some unrelated way would "catch" every mutation and look
+  // perfect.
+  if (runAgainst(HOOK_SRC) !== 0) {
+    console.log('FAIL  CONTROL: the suite does not pass against the unmodified hook');
+    bad++;
+  } else {
+    console.log('PASS  CONTROL: the suite passes against the unmodified hook');
+  }
+
+  MUTATIONS.forEach(([label, from, to], i) => {
+    if (!src.includes(from)) {
+      console.log(`FAIL  mutation ${i + 1} never applied (anchor not found): ${label}`);
+      bad++;
+      return;
+    }
+    const file = path.join(dir, `mutant-${i + 1}.js`);
+    fs.writeFileSync(file, src.replace(from, to));
+    const code = runAgainst(file);
+    if (code === 0) {
+      console.log(`FAIL  mutation ${i + 1} NOT caught: ${label}`);
+      bad++;
+    } else {
+      console.log(`PASS  mutation ${i + 1} caught: ${label}`);
+    }
+  });
+
+  console.log(bad ? `\n${bad} problem(s): the suite is not the evidence it claims to be` : '\nALL MUTATIONS CAUGHT');
+  process.exit(bad ? 1 : 0);
+}
+
+const g = require(HOOK);
+
+let failures = 0;
+let passes = 0;
+function check(name, cond, detail) {
+  if (cond) {
+    console.log(`PASS  ${name}`);
+    passes++;
+  } else {
+    console.log(`FAIL  ${name}${detail === undefined ? '' : `\n      got: ${detail}`}`);
+    failures++;
+  }
+}
+
+// The hook matches against quote-masked text, exactly as main() does. Testing
+// the raw string instead would pass while the shipped path fails.
+const triggers = (cmd) => g.GH_MERGE_RE.test(g.maskQuoted(cmd)) || g.SAFE_MERGE_RE.test(g.maskQuoted(cmd));
+
+// --- 0. Control -------------------------------------------------------------
+
+check('CONTROL: a plain merge command triggers the gate', triggers('gh pr merge 42 --squash'));
+check('CONTROL: an unrelated command does not', !triggers('git status'));
+
+// --- 1. Trigger matching: what is a merge attempt ---------------------------
+
+check('trigger: after a semicolon', triggers('git fetch; gh pr merge 42 --squash'));
+check('trigger: after &&', triggers('git fetch && gh pr merge 42 --squash'));
+check('trigger: after a newline', triggers('git fetch\ngh pr merge 42'));
+check('trigger: after a pipe', triggers('echo 42 | gh pr merge --squash'));
+check('trigger: extra whitespace between words', triggers('gh   pr   merge 42'));
+check('trigger: case insensitive', triggers('GH PR MERGE 42'));
+check('trigger: the safe_merge.sh wrapper', triggers('bash scripts/safe_merge.sh 42'));
+check('trigger: the wrapper via ./', triggers('./safe_merge.sh 42'));
+
+// The masking exists so that text a command merely CARRIES is not read as
+// text it RUNS. A guard that blocks its own documentation gets switched off.
+check('near-miss: a quoted mention is not a merge', !triggers('echo "gh pr merge 42"'));
+check('near-miss: a single-quoted mention is not a merge', !triggers("echo 'gh pr merge 42'"));
+check('near-miss: gh pr create is not a merge', !triggers('gh pr create --base master'));
+check('near-miss: gh pr view is not a merge', !triggers('gh pr view 42 --json state'));
+check('near-miss: a mid-word match does not trigger', !triggers('echo notgh pr merge'));
+check('near-miss: a filename mentioning merge', !triggers('git add docs/gh-pr-merge-notes.md'));
+
+// --- 2. The documented bypass, asserted as it currently behaves -------------
+//
+// These four are the #17 limit. They are NOT aspirational: each asserts what
+// the hook does TODAY. Flip any of them and you have changed the hook's
+// measured record, which is a decision, not a bug fix.
+
+check(
+  'KNOWN LIMIT (#17): an inline env prefix does NOT trigger the gate',
+  !triggers('CLAUDE_MERGE_GATE_OVERRIDE=1 gh pr merge 42'),
+  'if this now triggers, BOUNDARY was widened - see issue #17 and re-measure the record'
+);
+check(
+  'KNOWN LIMIT (#17): any inline assignment hides the merge, not just the override var',
+  !triggers('GH_TOKEN=abc123 gh pr merge 42'),
+  'if this now triggers, BOUNDARY was widened - see issue #17'
+);
+check(
+  'KNOWN LIMIT (#17): the same prefix after a separator is also hidden',
+  !triggers('git fetch; GH_TOKEN=abc gh pr merge 42'),
+  'if this now triggers, BOUNDARY was widened - see issue #17'
+);
+check(
+  'the SUPPORTED override form does reach the gate',
+  triggers('export CLAUDE_MERGE_GATE_OVERRIDE=1; gh pr merge 42'),
+  'the documented override must still be visible to the hook, and therefore logged'
+);
+
+// --- 3. Override recognition ------------------------------------------------
+
+check('override: bash export form', g.BASH_OVERRIDE_RE.test('export CLAUDE_MERGE_GATE_OVERRIDE=1; gh pr merge 42'));
+check('override: bash bare assignment on its own', g.BASH_OVERRIDE_RE.test('CLAUDE_MERGE_GATE_OVERRIDE=1\ngh pr merge 42'));
+check('override: PowerShell env form', g.PWSH_OVERRIDE_RE.test("$env:CLAUDE_MERGE_GATE_OVERRIDE = '1'; gh pr merge 42"));
+check('override: PowerShell unquoted', g.PWSH_OVERRIDE_RE.test('$env:CLAUDE_MERGE_GATE_OVERRIDE = 1; gh pr merge 42'));
+check('override: PowerShell is case-insensitive on env:', g.PWSH_OVERRIDE_RE.test("$ENV:CLAUDE_MERGE_GATE_OVERRIDE='1'"));
+check('override: a value other than 1 is not an override', !g.PWSH_OVERRIDE_RE.test("$env:CLAUDE_MERGE_GATE_OVERRIDE = '10'"));
+check('override: an unrelated variable is not an override', !g.BASH_OVERRIDE_RE.test('export SOMETHING_ELSE=1; gh pr merge 42'));
+
+// --- 4. Gate-comment classification ----------------------------------------
+
+check('gate comment: a heading naming the gate is recognised', g.isGateComment('## Review gate\nDisposition: ARM'));
+check('gate comment: an ordinary comment is not', !g.isGateComment('Looks good to me, merging now.'));
+check('gate comment: a non-string body is not', !g.isGateComment(null));
+
+check('classify: an arm reads as ARMED', g.classify('## Gate: round 2\nDisposition: arming auto-merge') === 'ARMED');
+check('classify: a routed fix round reads as BLOCKED', g.classify('## Gate: round 1\nDisposition: routed to the builder') === 'BLOCKED');
+check('classify: BLOCK wins over an arm mentioned in the same body',
+  g.classify('## Gate: round 1\nDisposition: BLOCK, do not arm yet') === 'BLOCKED');
+check('classify: an unrelated body is UNKNOWN', g.classify('## Notes\nNothing to see here.') === 'UNKNOWN');
+
+// --- 5. Staleness: has the diff moved since the arm ------------------------
+//
+// This is the arming lesson mechanised: an arm covers the commit it reviewed,
+// and nothing after it.
+
+const armTs = Date.parse('2026-08-01T12:00:00Z');
+const commit = (oid, when, headline) => ({ oid, committedDate: when, messageHeadline: headline });
+
+check('staleness: a commit after the arm is stale',
+  !!g.findStaleness({
+    heading: '## Gate: arming',
+    commits: [commit('aaa111', '2026-08-01T13:00:00Z', 'fix: address review')],
+    armTs,
+  }));
+
+check('staleness: a commit before the arm is not stale',
+  !g.findStaleness({
+    heading: '## Gate: arming',
+    commits: [commit('aaa111', '2026-08-01T11:00:00Z', 'feat: the reviewed work')],
+    armTs,
+  }));
+
+check('staleness: a merge-in from the default branch is not a new change',
+  !g.findStaleness({
+    heading: '## Gate: arming',
+    commits: [commit('aaa111', '2026-08-01T13:00:00Z', 'Merge branch master into feature')],
+    armTs,
+  }));
+
+check('staleness: with a cited SHA, only commits AFTER it count',
+  !g.findStaleness({
+    heading: '## Gate: arming `aaa111`',
+    commits: [commit('aaa111aaa', '2026-08-01T13:00:00Z', 'the reviewed commit')],
+    armTs,
+  }));
+
+check('staleness: with a cited SHA, a later commit is stale',
+  !!g.findStaleness({
+    heading: '## Gate: arming `aaa111`',
+    commits: [
+      commit('aaa111aaa', '2026-08-01T13:00:00Z', 'the reviewed commit'),
+      commit('bbb222bbb', '2026-08-01T14:00:00Z', 'fix: pushed after arming'),
+    ],
+    armTs,
+  }));
+
+// --- 6. The cheap prefilter must not be cheaper than the rules -------------
+//
+// main() exits early when the prefilter misses, so anything the real triggers
+// catch must survive it, or the rule below it never runs.
+
+for (const cmd of [
+  'gh pr merge 42 --squash',
+  'git fetch && gh pr merge 42',
+  'bash scripts/safe_merge.sh 42',
+  'GH  PR  MERGE 42',
+]) {
+  check(`prefilter: does not drop ${JSON.stringify(cmd).slice(0, 40)}`, g.CHEAP_PREFILTER_RE.test(cmd));
+}
+
+console.log(`\npassed ${passes}, failed ${failures}`);
+if (failures) process.exit(1);
+console.log('ALL PASS');
