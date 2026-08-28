@@ -53,6 +53,15 @@ features, run and write tests, merge their own PRs when CI is green, and
 keep the project board truthful in real time. The founder's recurring
 duties stay deliberately narrow:
 
+**"Founder" here means a role, not a job title.** It is whoever holds
+final say on what ships and carries the consequences when it breaks. You
+do not need to have founded anything. The nearest formal title is
+**product owner**, because the role needs change-approval authority over
+the work; product manager understates it, since a PM usually advises on
+direction without holding that authority. Read "founder" as "product
+owner with the keys" throughout, and the model applies unchanged to a
+staff engineer running a project alone inside a larger company.
+
 1. **Use the product.** Daily use is the primary QA signal.
 2. **Dump raw testing notes.** Write them unstructured, as they occur to
    you. Agents turn them into scoped, deduplicated issues.
@@ -692,7 +701,7 @@ project.
 |---|---|---|
 | The six principles | **Portable** | No tool appears in any of them. |
 | 1. One source of truth, agent-maintained | **Adapt** | Any tracker with an API serves. The board is not the point; one truthful source is. |
-| 2. `CLAUDE.md` as operating manual | **Portable** | |
+| 2. `CLAUDE.md` as operating manual | **Portable** | The argument transfers; the filename does not. `AGENTS.md` is the cross-vendor equivalent, read by 25+ tools. Claude Code reads only `CLAUDE.md`, so a repo using both puts `@AGENTS.md` on the first line of `CLAUDE.md` and adds anything Claude-specific below it. On Windows use that import, not a symlink. |
 | 3. Correction-capture memory loop | **Portable** | |
 | 4. Tests as agent-verification infrastructure | **Portable** | Take the argument about test shape, not the counts. |
 | 5. Guardrails | **Adapt** | `guardrail.js`, `prompt-context.js`, and `agent-ledger.js` are Node, and call no `gh`. They run anywhere Node runs. `pr-merge-gate.js` does call `gh`, so it needs a GitHub-shaped host or a rewrite. Branch protection and auto-merge are code-host features, not portable code. |
