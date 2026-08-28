@@ -114,8 +114,13 @@ const cwd = input.cwd || process.cwd();
 // pattern (or delete the carve-out) if your fork uses a different repo name.
 function isBackupRepo(command) {
   const BACKUP_REMOTE = /claude-state(\.git)?\/?$/;
-  const dashC = command.match(/-C\s+["']?([^"'\s]+)/);
-  const dir = dashC ? dashC[1] : cwd;
+  // Quoted first, so a path with a space resolves whole. The previous pattern
+  // stopped at the first space, so `-C "C:/My Files/claude-state"` resolved to
+  // `C:/My`, the lookup failed, and the carve-out silently stopped applying —
+  // re-arming the push ban against the backup repo on any machine whose home
+  // path has a space in it, which on Windows is most of them.
+  const dashC = command.match(/-C\s+(?:"([^"]+)"|'([^']+)'|([^\s"']+))/);
+  const dir = dashC ? (dashC[1] ?? dashC[2] ?? dashC[3]) : cwd;
   try {
     const origin = execFileSync('git', ['remote', 'get-url', 'origin'], {
       cwd: dir,
@@ -142,6 +147,37 @@ function currentBranch() {
   }
 }
 
+// Blank out the contents of quoted runs, preserving length and offsets, so a
+// rule never fires on text that only exists inside a quoted argument.
+// `echo "git push origin master"` pushes nothing and must not be blocked.
+//
+// Backported verbatim from pr-merge-gate.js, which solved this first and
+// pointed at this file as the convention it was matching. Leaving the fix in
+// only the newer hook is how the older, higher-traffic one kept the bug.
+//
+// Deliberately simple: still a regex pass, not a shell parser (no backtick or
+// escape-aware PowerShell handling). Extended just enough to close the
+// demonstrated gap, which is the same bar every rule here is held to.
+function maskQuoted(s) {
+  const out = s.split('');
+  let q = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) {
+      out[i] = ' ';
+      if (c === q && s[i - 1] !== '\\') q = null;
+    } else if (c === '"' || c === "'") {
+      q = c;
+      out[i] = ' ';
+    }
+  }
+  return out.join('');
+}
+
+// Every rule receives the MASKED command as its first argument, so quote
+// safety is the default and no rule can forget it. The raw command comes
+// second, for the rare case that must read a quoted value back (see
+// push-to-default-branch, which resolves a `-C "<path>"` argument).
 const rules = [
   {
     // Windows only. Git Bash mangles the path argument, so the batch file
@@ -186,7 +222,7 @@ const rules = [
   },
   {
     name: 'push-to-default-branch',
-    test: (c) => {
+    test: (c, raw) => {
       if (!/\bgit\b[^&|;]*\bpush\b/.test(c) || /--dry-run/.test(c)) return false;
       // Carve-out: the claude-state backup repo (see isBackupRepo above).
       // This rule exists to protect CODE repos, where master is
@@ -198,7 +234,9 @@ const rules = [
       // copy silently drifts stale for days. Scoped to that one repo by
       // remote URL or an explicit -C path; every other repo still hits the
       // ban.
-      if (isBackupRepo(c)) return false;
+      // The raw command, not the masked one: this reads a path back out of
+      // `-C "<path>"`, and masking would blank the very value it needs.
+      if (isBackupRepo(raw)) return false;
       const at = c.search(/\bpush\b/);
       const args = c.slice(at + 4);
       // Explicitly naming master/main as the destination refspec.
@@ -217,11 +255,12 @@ const rules = [
 // notices. Collect those names so the one log line for this invocation can
 // carry them, whatever the final outcome turns out to be.
 const broken = [];
+const masked = maskQuoted(cmd);
 
 for (const rule of rules) {
   let hit = false;
   try {
-    hit = rule.test(cmd);
+    hit = rule.test(masked, cmd);
   } catch (err) {
     hit = false; // a broken rule must never block work
     broken.push(`${rule.name}: ${err?.message || 'threw'}`);

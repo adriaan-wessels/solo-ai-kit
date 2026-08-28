@@ -87,11 +87,67 @@ const ALLOWS = [
   'git push --dry-run origin master',
   'git push -u origin feat/some-branch',
   'git log --oneline -5',
+  'git stash list',
+];
+
+// Quoted near-misses, one per rule. Each command CONTAINS a banned shape but
+// only inside a quoted argument, so it does nothing dangerous and must pass.
+// Writing a PR body that quoted a banned command is what surfaced this class:
+// the guard blocked the `gh pr create` describing it.
+const QUOTED_NEAR_MISSES = [
+  ['batch-file-false-green', 'echo "run it with cmd.exe /c build.bat"'],
+  ['git-stash-ban', 'git commit -m "drop git stash from the parallel flow"'],
+  ['blanket-process-kill', 'echo "never run killall node here"'],
+  ['release-asset-clobber', 'echo "gh release upload x --clobber is banned"'],
+  ['push-to-default-branch', 'echo "git push origin master"'],
 ];
 
 for (const cmd of ALLOWS) {
   const r = run(payload(cmd));
   check(`allows: ${cmd}`, !denied(r) && r.outcome === 'clean', `outcome=${r.outcome} stdout=${r.stdout}`);
+}
+
+for (const [rule, cmd] of QUOTED_NEAR_MISSES) {
+  const r = run(payload(cmd));
+  check(`quoted near-miss (${rule}): ${cmd}`, !denied(r) && r.outcome === 'clean', `blocked by ${r.target}`);
+}
+
+// Masking must not open a hole: the same shapes unquoted still block.
+for (const [rule, cmd] of [
+  ['git-stash-ban', 'git stash push -m wip'],
+  ['blanket-process-kill', 'killall node'],
+  ['release-asset-clobber', 'gh release upload v1 a.zip --clobber'],
+]) {
+  const r = run(payload(cmd));
+  check(`still blocks unquoted (${rule}): ${cmd}`, denied(r) && r.target === rule, `outcome=${r.outcome} target=${r.target}`);
+}
+
+// The backup-repo carve-out reads a path back out of `-C "<path>"`, so it is
+// the one place that must see the RAW command. Masking it would blank the
+// value it needs, silently re-arming the ban against the backup repo — the
+// failure the carve-out exists to prevent (backups that never leave the
+// machine). A path with a space forces the quotes that make this fail.
+{
+  const backup = path.join(SANDBOX, 'my backup', 'claude-state');
+  fs.mkdirSync(backup, { recursive: true });
+  const git = (args, cwd) => execFileSync('git', args, { cwd, stdio: 'ignore' });
+  try {
+    git(['init', '-q'], backup);
+    git(['remote', 'add', 'origin', 'https://example.invalid/me/claude-state.git'], backup);
+
+    const r1 = run(payload(`git -C "${backup}" push origin master`));
+    check('backup carve-out: quoted -C path still exempt', !denied(r1) && r1.outcome === 'clean', `blocked by ${r1.target}`);
+
+    // Same shape, a repo that is not the backup target: the ban must hold.
+    const other = path.join(SANDBOX, 'some code');
+    fs.mkdirSync(other, { recursive: true });
+    git(['init', '-q'], other);
+    git(['remote', 'add', 'origin', 'https://example.invalid/me/product.git'], other);
+    const r2 = run(payload(`git -C "${other}" push origin master`));
+    check('backup carve-out: does not leak to other repos', denied(r2) && r2.target === 'push-to-default-branch', `outcome=${r2.outcome}`);
+  } catch (e) {
+    check('backup carve-out: git available to test it', false, e.message);
+  }
 }
 
 // --- 2. Telemetry: one line per invocation, on every outcome path -----------
