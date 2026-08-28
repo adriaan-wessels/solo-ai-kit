@@ -648,6 +648,53 @@ see what is coming and why it is not here yet.
 
 ---
 
+## What transfers, and what does not
+
+Every practice above states the mechanism that earned it, and those
+mechanisms are GitHub, PowerShell, and a single editor. So each practice
+carries two layers: an argument, and a delivery vehicle. They transfer at
+different rates. The argument outlives the vehicle. Vendors re-gate
+features, and a shell script is only as portable as its shell.
+
+This table separates the two once, so that each reader does not have to.
+Use it with the four-step exercise in the top tip. The table tells you
+which practices are worth adapting. The exercise adapts them to your
+project.
+
+| Layer | Verdict | What it takes |
+|---|---|---|
+| The six principles | **Portable** | No tool appears in any of them. |
+| 1. One source of truth, agent-maintained | **Adapt** | Any tracker with an API serves. The board is not the point; one truthful source is. |
+| 2. `CLAUDE.md` as operating manual | **Portable** | |
+| 3. Correction-capture memory loop | **Portable** | |
+| 4. Tests as agent-verification infrastructure | **Portable** | Take the argument about test shape, not the counts. |
+| 5. Guardrails | **Portable** | `guardrail.js`, `prompt-context.js`, and `agent-ledger.js` are Node, and call no `gh`. They run anywhere Node runs. |
+| 6. AI-native ceremonies | **Solo** | It removes ceremonies that a team still needs. |
+| 7. Judgment gates | **Adapt** | A team must name an owner per gate. One editor makes the owner implicit. |
+| 8. Automation shaped by cost | **Portable** | It applies to developer seconds as readily as to CI spend. |
+| 9. Parallel-agent hygiene | **Portable** | |
+| 10. Deliberate omissions | **Inverts** | Each omission is justified by there being one human. |
+| Guard telemetry, and the hook delivery facts | **Portable** | See `claude/README.md`. Delivery facts are Claude Code facts, not project facts. |
+| The unrecoverables audit | **Portable** | 39 lines, and the least platform-bound thing here. |
+| Self-merge on green CI | **Solo** | |
+| `.claude/` kept git-ignored | **Inverts** | Above one person, commit the shared hooks and skills. Ignore only local settings. |
+| `scripts/*.ps1`, the bootstrap, the board | **Rewrite** | Windows and GitHub throughout. |
+
+One caveat on the evidence for this table. It comes from a single
+external reading, on 2026-08-28: a CTO assessed the kit for a
+six-developer team, on a stack with no GitHub and no PowerShell in it.
+The verdicts above match what survived that reading. One data point sets
+the shape of the table. It does not prove every row.
+
+That reading also corrected the kit twice, and both corrections are now
+fixed. It named guard telemetry as something to copy from `guardrail.js`,
+where it did not exist. And it read practice 10 as omitting a PR
+template, which the kit in fact ships. Both faults were ours: a document
+that describes a pattern the code does not implement, and an omission
+list that reads as longer than it is.
+
+---
+
 ## Where this model stops
 
 This model is built for one context: a solo founder, and a product
@@ -664,7 +711,13 @@ where someone else's rules govern how software must be verified.
   gate in one person. An organization adopting these practices needs
   named decision owners, human review (a CODEOWNERS file, reversing
   practice 10's omission), and risk tiers that decide which changes an
-  agent may merge alone.
+  agent may merge alone. The table above marks which practices survive
+  that change and which invert. The mechanisms and the arguments
+  transfer. The delivery vehicle and the gates that assume one person do
+  not. One inversion is worth stating on its own: a team should commit
+  its shared hooks and skills, and ignore only its local settings. Keep
+  them private and each developer rebuilds the same tooling alone, or
+  nobody builds it at all.
 - **Diligence.** The kit keeps no record of which code an agent
   generated, with which model, reviewed by whom. If provenance will
   ever matter to you, build that record from day one.
