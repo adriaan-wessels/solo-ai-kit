@@ -14,22 +14,86 @@
 // add project-specific ones as you discover them, and delete any that don't
 // apply. A rule earns its place when it has actually cost you something.
 //
-// Escape hatch: set CLAUDE_GUARDRAIL_OFF=1 to disable every rule.
+// Escape hatch: set CLAUDE_GUARDRAIL_OFF=1 to disable every rule. It disables
+// enforcement, not the record: the override still writes its own log line
+// below. An override you cannot see is the same as no guard at all.
 
 const fs = require('fs');
+const path = require('path');
 const { execFileSync } = require('child_process');
 
-if (process.env.CLAUDE_GUARDRAIL_OFF === '1') process.exit(0);
+// Telemetry. One line per invocation, on every outcome path, per the kit's
+// guard-telemetry pattern (claude/README.md, "Guard telemetry"). Grammar and
+// outcome vocabulary match pr-merge-gate.js so one parser reads every guard's
+// log: `timestamp|guard|outcome|target|reason`.
+//
+// The line that matters most here is `clean`, the common path. This guard sees
+// every shell command, so its log is the only evidence that it runs at all —
+// and the only way to tell a working guard from a dead one during the
+// decommission test.
+//
+// The path follows agent-ledger.js rather than pr-merge-gate.js on purpose.
+// Both hooks install machine-global (claude/README.md, "Two install modes"),
+// so resolving the log next to the hook keeps a global install writing to
+// ~/.claude/state/ instead of creating a stray .claude/ inside whatever repo
+// the command happens to run in. A repo that never ran bootstrap.ps1 has no
+// .claude/ ignore rule, and a later `git add -A` would commit that directory.
+const LOG = path.join(__dirname, '..', 'state', 'guardrail.log');
+const LOG_MAX_BYTES = 512 * 1024;
+
+function log(outcome, target, reason) {
+  try {
+    fs.mkdirSync(path.dirname(LOG), { recursive: true });
+    // Field separators and newlines cannot survive inside a field.
+    const clean = (s) => String(s).replace(/[|\t\r\n]/g, ' ');
+    fs.appendFileSync(
+      LOG,
+      `${new Date().toISOString()}|guardrail|${clean(outcome)}|${clean(target)}|${clean(reason)}\n`
+    );
+    // Every other guard in the kit logs once per session or once per merge.
+    // This one logs once per shell command, so it is the first log here that
+    // can grow without bound. Keep the recent half once it passes the cap.
+    const { size } = fs.statSync(LOG);
+    if (size > LOG_MAX_BYTES) {
+      const kept = fs.readFileSync(LOG, 'utf8').slice(-Math.floor(LOG_MAX_BYTES / 2));
+      fs.writeFileSync(LOG, kept.slice(kept.indexOf('\n') + 1));
+    }
+  } catch {
+    /* logging is best-effort; it must never block a command */
+  }
+}
+
+// Commands are long and often hold secrets in flags. Log a bounded prefix:
+// enough to identify the shape, not enough to make the log a credential store.
+const brief = (c) => {
+  const oneLine = String(c).replace(/\s+/g, ' ').trim();
+  return oneLine.length > 160 ? `${oneLine.slice(0, 160)}…` : oneLine;
+};
 
 let input = {};
 try {
   input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}');
 } catch {
+  // Read stdin before the override check, so an override records what it let
+  // through. A parse failure means this guard inspected nothing at all.
+  log('open:parse-failure', '-', 'stdin was not valid JSON; command not inspected');
   process.exit(0); // never block on a parse failure
 }
 
 const cmd = input?.tool_input?.command;
-if (typeof cmd !== 'string' || !cmd.trim()) process.exit(0);
+
+if (process.env.CLAUDE_GUARDRAIL_OFF === '1') {
+  log('override', '-', `CLAUDE_GUARDRAIL_OFF=1; ${brief(cmd ?? '(no command)')}`);
+  process.exit(0);
+}
+
+if (typeof cmd !== 'string' || !cmd.trim()) {
+  // Rare by construction: the matcher restricts this hook to Bash/PowerShell,
+  // which always carry a command. If this line ever becomes common, the
+  // matcher and the payload shape have drifted apart, and that is the finding.
+  log('open:no-command', '-', 'tool_input.command absent or empty');
+  process.exit(0);
+}
 
 const cwd = input.cwd || process.cwd();
 
@@ -149,14 +213,22 @@ const rules = [
   },
 ];
 
+// A rule whose test throws fails open, silently, for as long as nobody
+// notices. Collect those names so the one log line for this invocation can
+// carry them, whatever the final outcome turns out to be.
+const broken = [];
+
 for (const rule of rules) {
   let hit = false;
   try {
     hit = rule.test(cmd);
-  } catch {
+  } catch (err) {
     hit = false; // a broken rule must never block work
+    broken.push(`${rule.name}: ${err?.message || 'threw'}`);
   }
   if (hit) {
+    const note = broken.length ? ` [rules failing open: ${broken.join('; ')}]` : '';
+    log('blocked', rule.name, `${brief(cmd)}${note}`);
     process.stdout.write(
       JSON.stringify({
         hookSpecificOutput: {
@@ -168,6 +240,15 @@ for (const rule of rules) {
     );
     process.exit(0);
   }
+}
+
+// One line per invocation: a rule that failed open makes this pass `open:...`,
+// never `clean`. Reporting it clean would be the exact false confidence this
+// telemetry exists to remove.
+if (broken.length) {
+  log('open:rule-error', broken.map((b) => b.split(':')[0]).join(','), `${brief(cmd)} [${broken.join('; ')}]`);
+} else {
+  log('clean', '-', brief(cmd));
 }
 
 process.exit(0);
