@@ -174,6 +174,36 @@ function maskQuoted(s) {
   return out.join('');
 }
 
+// Blank out heredoc BODIES, preserving length, offsets and line breaks, for
+// the same reason maskQuoted exists: text a command merely carries is not text
+// the command runs. A PR body written with `<<'EOF' ... EOF` reached the rules
+// as command text and tripped push-to-default-branch on its own prose (#6).
+// An unbalanced quote in such a body also desynchronised maskQuoted for the
+// whole rest of the command, so this runs first.
+//
+// Newlines survive the blanking, so rules that split on command separators
+// still see the real line structure.
+//
+// Same deliberate limits as maskQuoted: a regex pass, not a shell parser. It
+// handles `<<TAG`, `<<-TAG` and a quoted `<<'TAG'`, and leaves `<<<` alone.
+function maskHeredocs(s) {
+  const out = s.split('');
+  const start = /<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/g;
+  let m;
+  while ((m = start.exec(s)) !== null) {
+    const nl = s.indexOf('\n', m.index);
+    if (nl === -1) continue;
+    const term = new RegExp('^[ \t]*' + m[2] + '[ \t]*$', 'm');
+    const after = s.slice(nl + 1);
+    const hit = after.match(term);
+    const end = hit ? nl + 1 + hit.index : s.length;
+    for (let i = nl + 1; i < end; i++) {
+      if (out[i] !== '\n' && out[i] !== '\r') out[i] = ' ';
+    }
+  }
+  return out.join('');
+}
+
 // Every rule receives the MASKED command as its first argument, so quote
 // safety is the default and no rule can forget it. The raw command comes
 // second, for the rare case that must read a quoted value back (see
@@ -223,7 +253,8 @@ const rules = [
   {
     name: 'push-to-default-branch',
     test: (c, raw) => {
-      if (!/\bgit\b[^&|;]*\bpush\b/.test(c) || /--dry-run/.test(c)) return false;
+      const m = c.match(/\bgit\b[^&|;]*\bpush\b/);
+      if (!m) return false;
       // Carve-out: the claude-state backup repo (see isBackupRepo above).
       // This rule exists to protect CODE repos, where master is
       // branch-protected and every change belongs in a reviewed PR. A
@@ -237,8 +268,14 @@ const rules = [
       // The raw command, not the masked one: this reads a path back out of
       // `-C "<path>"`, and masking would blank the very value it needs.
       if (isBackupRepo(raw)) return false;
-      const at = c.search(/\bpush\b/);
-      const args = c.slice(at + 4);
+      // This push's own arguments, and nothing after the next command
+      // separator. Reading to the end of the string is how a following
+      // `gh pr create --base master` used to be read as this push's refspec,
+      // denying the exact branch-and-PR workflow the reason line below tells
+      // you to run (#6). `--dry-run` is scoped the same way, so a later
+      // command mentioning it cannot exempt a real push.
+      const args = c.slice(m.index + m[0].length).split(/[&|;\r\n]/)[0];
+      if (/--dry-run/.test(args)) return false;
       // Explicitly naming master/main as the destination refspec.
       if (/\b(HEAD:)?(master|main)\b/.test(args)) return true;
       // A bare push (flags only, no refspec) while sitting on the default.
@@ -255,7 +292,7 @@ const rules = [
 // notices. Collect those names so the one log line for this invocation can
 // carry them, whatever the final outcome turns out to be.
 const broken = [];
-const masked = maskQuoted(cmd);
+const masked = maskQuoted(maskHeredocs(cmd));
 
 for (const rule of rules) {
   let hit = false;
