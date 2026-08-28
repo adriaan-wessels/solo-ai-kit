@@ -7,7 +7,7 @@ personal automation tooling for working the project, not project source,
 so it can change freely between sessions without needing a PR.
 
 **That last rule holds for one person, and reverses above one.** With a
-team, commit the shared parts (`hooks/`, `skills/`, `commands/`) and
+team, commit the shared parts (`hooks/`, `skills/`, `workflows/`) and
 git-ignore only each developer's local settings. The reason to keep it
 out of the repo was that nobody else reads it. Once somebody else does,
 keeping it private means each developer rebuilds the same tooling alone,
@@ -155,6 +155,22 @@ duplicates.
   fail-opens, 1 disarm passthrough, 0 overrides. Project-level only. The
   header explains the detection rules, the override, and the SHA-scoped
   commit status that would close the server-side gap.
+- **`skills/overnight-review/SKILL.md`**: the "AI-native QA cycle" ceremony
+  from the kit README (practice 6). A long, mostly-unattended pass that
+  lands safe work, gates on the expensive test layer with flake triage, then
+  fans out parallel fleets (user-testing, multi-lens code/product review,
+  testing-methodology review) that catch-and-report findings to the
+  tracker. Every project-specific detail (the board/issue references, the
+  actual review lenses, the tech stack) is marked `<PLACEHOLDER: ...>`. Fill
+  those in for the new project before relying on it; the surrounding
+  structure is the part that transfers as-is.
+- **`workflows/issue-triage-to-milestones.js`**: the "AI-native planning"
+  ceremony (practice 6). A three-phase agent workflow (gather every open
+  issue → fan out a panel of lens reviewers over the whole set → synthesize
+  a milestone plan) that proposes a roadmap without mutating anything. Same
+  deal: project-specific bits are `<PLACEHOLDER: ...>`-marked. Fill in the
+  lens list and the gather-phase `gh` invocations (owner/project number) for
+  the new project.
 
 ## The delivery gotcha that makes or breaks all of these
 
@@ -203,22 +219,6 @@ Two things worth knowing if you adapt it:
 - **Always bound the retries.** This one blocks each `agent_id` at most once
   (recorded in `.claude/state/stall-blocked.txt`). Without a guard, an agent
   that genuinely cannot finish is blocked forever.
-- **`skills/overnight-review/SKILL.md`**: the "AI-native QA cycle" ceremony
-  from the kit README (practice 6). A long, mostly-unattended pass that
-  lands safe work, gates on the expensive test layer with flake triage, then
-  fans out parallel fleets (user-testing, multi-lens code/product review,
-  testing-methodology review) that catch-and-report findings to the
-  tracker. Every project-specific detail (the board/issue references, the
-  actual review lenses, the tech stack) is marked `<PLACEHOLDER: ...>`. Fill
-  those in for the new project before relying on it; the surrounding
-  structure is the part that transfers as-is.
-- **`workflows/issue-triage-to-milestones.js`**: the "AI-native planning"
-  ceremony (practice 6). A three-phase agent workflow (gather every open
-  issue → fan out a panel of lens reviewers over the whole set → synthesize
-  a milestone plan) that proposes a roadmap without mutating anything. Same
-  deal: project-specific bits are `<PLACEHOLDER: ...>`-marked. Fill in the
-  lens list and the gather-phase `gh` invocations (owner/project number) for
-  the new project.
 
 ## Guard telemetry: one log line per invocation, on every outcome path
 
