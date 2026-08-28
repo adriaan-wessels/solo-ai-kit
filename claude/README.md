@@ -250,6 +250,17 @@ classification. Run the replay before you deploy any change to the
 guard. A regression then shows up as a diff over known history, not as
 a missed catch in production.
 
+This repo now runs that replay in CI, on every push and pull request to
+`master`, next to a syntax check over every script in `claude/` and
+`scripts/`. Read what CI here does not cover before you trust it.
+`guardrail.js` is the only hook with a test suite. The other seven
+hooks, the workflow script, and the three PowerShell scripts get a
+syntax check and nothing more, so a hook that parses cleanly and behaves
+wrongly still ships green. `bootstrap.ps1` is the widest gap. It creates
+repositories and sets branch protection, and no test exercises it. The
+syntax check is a floor, not a substitute. Write the replay for your own
+guards.
+
 ## Why this split exists
 
 Splitting "project source" (committed, in the repo) from "how I work this
