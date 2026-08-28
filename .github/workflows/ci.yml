@@ -5,7 +5,8 @@
 #
 # Two things run here, cheapest first:
 #   1. a syntax check over every script the kit ships, and
-#   2. the guardrail replay harness, which is the only real test suite here.
+#   2. the replay harnesses, which are the only real test suites here:
+#      guardrail.test.js and subagent-stall-check.test.sh.
 #
 # Scope note, kept honest on purpose: this covers claude/ and scripts/ only.
 # templates/ is excluded because those files carry <PLACEHOLDER> markers and
@@ -91,3 +92,6 @@ jobs:
 
       - name: Guardrail replay harness
         run: node claude/hooks/guardrail.test.js
+
+      - name: Stall-check replay harness
+        run: bash claude/hooks/subagent-stall-check.test.sh

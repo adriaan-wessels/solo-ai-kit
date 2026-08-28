@@ -90,6 +90,19 @@ duplicates.
   Previously it could only emit a `systemMessage`, so detection was
   automatic but the resume was not. Silent otherwise. See "Preventing
   premature subagent termination" below (kit README, practice 9).
+- **`hooks/hook-log.sh`**: the shared guard-telemetry writer for the shell
+  hooks, sourced by them rather than run on its own. The JS hooks each carry
+  their own inline equivalent, so this is the same grammar for the `.sh`
+  side. It writes `.claude/state/<guard>.log`, sanitises every field, rotates
+  itself, and is contractually forbidden from changing the calling hook's
+  exit code. Source it with a no-op fallback (`type hook_log >/dev/null 2>&1
+  || hook_log() { :; }`) so a missing helper can never stop a guard from
+  guarding. See "Guard telemetry" below for the grammar.
+- **`hooks/subagent-stall-check.test.sh`**: the replay harness for the stall
+  check, run by CI. Asserts that every outcome path writes exactly one log
+  line, that the grammar survives pipes and newlines in an agent's message,
+  and that a block records which phrase matched. Carries a known-good control
+  case: if the control stops passing, distrust every other result in the run.
 - **`hooks/guardrail.js`**: a `PreToolUse` hook that DENIES dangerous Bash
   calls and hands the reason back to the agent as text. Highest-value hook
   in the kit: it converts "please don't do X" prompt boilerplate, which
@@ -262,16 +275,29 @@ classification. Run the replay before you deploy any change to the
 guard. A regression then shows up as a diff over known history, not as
 a missed catch in production.
 
-This repo now runs that replay in CI, on every push and pull request to
+This repo now runs those replays in CI, on every push and pull request to
 `master`, next to a syntax check over every script in `claude/` and
 `scripts/`. Read what CI here does not cover before you trust it.
-`guardrail.js` is the only hook with a test suite. The other seven
-hooks, the workflow script, and the three PowerShell scripts get a
-syntax check and nothing more, so a hook that parses cleanly and behaves
-wrongly still ships green. `bootstrap.ps1` is the widest gap. It creates
-repositories and sets branch protection, and no test exercises it. The
-syntax check is a floor, not a substitute. Write the replay for your own
-guards.
+`guardrail.js` and `subagent-stall-check.sh` are the only hooks with a
+test suite. The other six hooks, the workflow script, and the three
+PowerShell scripts get a syntax check and nothing more, so a hook that
+parses cleanly and behaves wrongly still ships green. `pr-merge-gate.js`
+is the sharpest of those: it classifies text, so this section's own rule
+says it needs a replay, and it does not have one. `bootstrap.ps1` is the
+widest. It creates repositories and sets branch protection, and no test
+exercises it. The syntax check is a floor, not a substitute. Write the
+replay for your own guards.
+
+One thing worth copying from how the stall-check harness was built. Once
+it was green, every defect it was meant to catch was reintroduced one at
+a time to check that it actually went red. Four of five did. The fifth
+reported "not caught", and that was a lie: the edit that was supposed to
+introduce the defect never applied, so the harness had run against
+unmodified code. **A mutation that fails to apply is indistinguishable
+from a test that misses it, and it reports as the reassuring one.** Assert
+that the file actually changed before you believe any mutation result.
+That is the same reason the harness carries a known-good control: a green
+run has to mean the check ran, not merely that nothing errored.
 
 ## Why this split exists
 
