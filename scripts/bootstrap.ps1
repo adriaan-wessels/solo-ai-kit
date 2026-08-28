@@ -245,15 +245,35 @@ function Copy-TemplateFile {
         return
     }
     if ($DryRun) {
-        Write-DryRunLine ('copy {0} -> {1}' -f $SourcePath, $DestPath)
+        # Say "substituting" only for a source that actually carries the marker.
+        # Announcing a substitution that will not happen is the same class of
+        # fault this function was patched to fix.
+        $marked = (Select-String -Path $SourcePath -Pattern '<PLACEHOLDER: Project Name>' -SimpleMatch -Quiet)
+        if ($marked) {
+            Write-DryRunLine ('copy {0} -> {1} (substituting the project name)' -f $SourcePath, $DestPath)
+        } else {
+            Write-DryRunLine ('copy {0} -> {1}' -f $SourcePath, $DestPath)
+        }
         return
     }
     $destDir = Split-Path -Parent $DestPath
     if (-not (Test-Path $destDir)) {
         New-Item -ItemType Directory -Path $destDir -Force | Out-Null
     }
-    Copy-Item -Path $SourcePath -Destination $DestPath
-    Write-DoneLine ('copied {0}' -f $DestPath)
+    # Substitute only the one placeholder whose value we know for certain.
+    # Everything else stays a visible <PLACEHOLDER: ...> marker on purpose:
+    # a marker the founder can see beats a value the script guessed.
+    $content = Get-Content -Path $SourcePath -Raw
+    $substituted = $content -replace '<PLACEHOLDER: Project Name>', $ProjectName
+    # WriteAllText with an explicit BOM-less encoder, NOT Set-Content -Encoding
+    # UTF8: on PowerShell 5.1 that writes a UTF-8 BOM, and a BOM at the head of
+    # .github/workflows/ci.yml is a parse hazard for GitHub Actions.
+    [System.IO.File]::WriteAllText($DestPath, $substituted, (New-Object System.Text.UTF8Encoding($false)))
+    if ($substituted -ne $content) {
+        Write-DoneLine ('copied {0} (project name substituted)' -f $DestPath)
+    } else {
+        Write-DoneLine ('copied {0}' -f $DestPath)
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -660,7 +680,7 @@ Write-StepHeader 'Branch protection on the default branch'
 
 if ($DryRun) {
     Write-DryRunLine ('gh repo view "{0}" --json defaultBranchRef --jq .defaultBranchRef.name' -f $RepoFullName)
-    Write-DryRunLine ('PUT repos/{0}/branches/<default>/protection with required_status_checks=["{1}"], enforce_admins=true, allow_force_pushes=false, allow_deletions=false' -f $RepoFullName, $RequiredCheckName)
+    Write-DryRunLine ('PUT repos/{0}/branches/<default>/protection with required_status_checks={1}, strict=false, enforce_admins=true, allow_force_pushes=false, allow_deletions=false' -f $RepoFullName, $(if ($RequiredCheckName -like '<PLACEHOLDER*') { 'null (no CI run exists yet)' } else { ('["{0}"]' -f $RequiredCheckName) }))
 } else {
     $defaultBranch = $null
     try {
@@ -671,15 +691,31 @@ if ($DryRun) {
     if ([string]::IsNullOrWhiteSpace($defaultBranch)) {
         Write-ManualLine ('Could not resolve the default branch for {0}. Set branch protection by hand: https://github.com/{0}/settings/branches - require status checks, enable "Do not allow bypassing the above settings" (enforce_admins), disable force pushes and branch deletion.' -f $RepoFullName)
     } else {
-        if ($RequiredCheckName -like '<PLACEHOLDER*') {
-            Write-ManualLine ('No real CI job name known yet (no CI run exists). Once the first CI run completes, set branch protection with the real job name: https://github.com/{0}/settings/branches -> Add rule for "{1}" -> require status checks to pass, add the job name, enable "Do not allow bypassing the above settings", disable force pushes and branch deletion.' -f $RepoFullName, $defaultBranch)
+        # The required-status-check name is the ONLY part of protection that
+        # needs a CI run to exist first. enforce_admins, the force-push ban and
+        # the deletion ban do not, so they go on now rather than waiting for a
+        # manual follow-up the founder may never do. A repo that is protected
+        # in three of four ways beats a repo that is protected in none.
+        $havePlaceholder = ($RequiredCheckName -like '<PLACEHOLDER*')
+        if ($havePlaceholder) {
+            $checksJson = 'null'
         } else {
-            $protectionBody = @"
+            # strict=false on purpose. GitHub's merge queue is unavailable to a
+            # personal private repo at any price, and with strict ("require
+            # branches to be up to date") a green auto-merge-armed PR silently
+            # starves as `behind` whenever another PR lands first. See the kit
+            # README, "Platform constraints worth knowing up front". Turn strict
+            # on only once you run the merge-train workflow described there.
+            $checksJson = @"
 {
-  "required_status_checks": {
-    "strict": true,
+    "strict": false,
     "contexts": ["$RequiredCheckName"]
-  },
+  }
+"@
+        }
+        $protectionBody = @"
+{
+  "required_status_checks": $checksJson,
   "enforce_admins": true,
   "required_pull_request_reviews": null,
   "restrictions": null,
@@ -687,16 +723,20 @@ if ($DryRun) {
   "allow_deletions": false
 }
 "@
-            try {
-                $protectionBody | gh api -X PUT ('repos/{0}/branches/{1}/protection' -f $RepoFullName, $defaultBranch) --input - | Out-Null
-                if ($LASTEXITCODE -eq 0) {
-                    Write-DoneLine ('branch protection set on {0} (required check: {1}, enforce_admins on, force-push/delete off)' -f $defaultBranch, $RequiredCheckName)
+        try {
+            $protectionBody | gh api -X PUT ('repos/{0}/branches/{1}/protection' -f $RepoFullName, $defaultBranch) --input - | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                if ($havePlaceholder) {
+                    Write-DoneLine ('branch protection set on {0} (enforce_admins on, force-push/delete off; NO required check yet)' -f $defaultBranch)
+                    Write-ManualLine ('No CI run exists yet, so no required status check was set. Once the first CI run completes, add the real job name: https://github.com/{0}/settings/branches -> edit the rule for "{1}" -> require status checks to pass -> add the job name. Leave "Require branches to be up to date" OFF unless you run a merge-train workflow.' -f $RepoFullName, $defaultBranch)
                 } else {
-                    Write-ManualLine ('Setting branch protection via gh api failed. Set it by hand: https://github.com/{0}/settings/branches -> Add rule for "{1}" -> require status check "{2}", enable "Do not allow bypassing the above settings", disable force pushes and branch deletion.' -f $RepoFullName, $defaultBranch, $RequiredCheckName)
+                    Write-DoneLine ('branch protection set on {0} (required check: {1}, strict off, enforce_admins on, force-push/delete off)' -f $defaultBranch, $RequiredCheckName)
                 }
-            } catch {
-                Write-ManualLine ('Setting branch protection via gh api failed. Set it by hand: https://github.com/{0}/settings/branches -> Add rule for "{1}" -> require status check "{2}", enable "Do not allow bypassing the above settings", disable force pushes and branch deletion.' -f $RepoFullName, $defaultBranch, $RequiredCheckName)
+            } else {
+                Write-ManualLine ('Setting branch protection via gh api failed. Set it by hand: https://github.com/{0}/settings/branches -> Add rule for "{1}" -> enable "Do not allow bypassing the above settings", disable force pushes and branch deletion, and require the CI status check once one exists.' -f $RepoFullName, $defaultBranch)
             }
+        } catch {
+            Write-ManualLine ('Setting branch protection via gh api failed. Set it by hand: https://github.com/{0}/settings/branches -> Add rule for "{1}" -> enable "Do not allow bypassing the above settings", disable force pushes and branch deletion, and require the CI status check once one exists.' -f $RepoFullName, $defaultBranch)
         }
     }
 }
