@@ -7,7 +7,7 @@ personal automation tooling for working the project, not project source,
 so it can change freely between sessions without needing a PR.
 
 **That last rule holds for one person, and reverses above one.** With a
-team, commit the shared parts (`hooks/`, `skills/`, `commands/`) and
+team, commit the shared parts (`hooks/`, `skills/`, `workflows/`) and
 git-ignore only each developer's local settings. The reason to keep it
 out of the repo was that nobody else reads it. Once somebody else does,
 keeping it private means each developer rebuilds the same tooling alone,
@@ -102,7 +102,7 @@ duplicates.
   something. `CLAUDE_GUARDRAIL_OFF=1` disables enforcement, but not the
   record: the override still writes its own log line, because an override
   you cannot see is the same as no guard. Every invocation writes one line
-  to `state/guardrail.log` under the guard-telemetry grammar below —
+  to `state/guardrail.log` under the guard-telemetry grammar below:
   `blocked`, `clean`, `open:<reason>` or `override`. Run
   `node hooks/guardrail.test.js` before you deploy any rule change; it
   replays the rules and asserts that each outcome path still logs.
@@ -155,6 +155,22 @@ duplicates.
   fail-opens, 1 disarm passthrough, 0 overrides. Project-level only. The
   header explains the detection rules, the override, and the SHA-scoped
   commit status that would close the server-side gap.
+- **`skills/overnight-review/SKILL.md`**: the "AI-native QA cycle" ceremony
+  from the kit README (practice 6). A long, mostly-unattended pass that
+  lands safe work, gates on the expensive test layer with flake triage, then
+  fans out parallel fleets (user-testing, multi-lens code/product review,
+  testing-methodology review) that catch-and-report findings to the
+  tracker. Every project-specific detail (the board/issue references, the
+  actual review lenses, the tech stack) is marked `<PLACEHOLDER: ...>`. Fill
+  those in for the new project before relying on it; the surrounding
+  structure is the part that transfers as-is.
+- **`workflows/issue-triage-to-milestones.js`**: the "AI-native planning"
+  ceremony (practice 6). A three-phase agent workflow (gather every open
+  issue → fan out a panel of lens reviewers over the whole set → synthesize
+  a milestone plan) that proposes a roadmap without mutating anything. Same
+  deal: project-specific bits are `<PLACEHOLDER: ...>`-marked. Fill in the
+  lens list and the gather-phase `gh` invocations (owner/project number) for
+  the new project.
 
 ## The delivery gotcha that makes or breaks all of these
 
@@ -203,32 +219,28 @@ Two things worth knowing if you adapt it:
 - **Always bound the retries.** This one blocks each `agent_id` at most once
   (recorded in `.claude/state/stall-blocked.txt`). Without a guard, an agent
   that genuinely cannot finish is blocked forever.
-- **`skills/overnight-review/SKILL.md`**: the "AI-native QA cycle" ceremony
-  from the kit README (practice 6). A long, mostly-unattended pass that
-  lands safe work, gates on the expensive test layer with flake triage, then
-  fans out parallel fleets (user-testing, multi-lens code/product review,
-  testing-methodology review) that catch-and-report findings to the
-  tracker. Every project-specific detail (the board/issue references, the
-  actual review lenses, the tech stack) is marked `<PLACEHOLDER: ...>`. Fill
-  those in for the new project before relying on it; the surrounding
-  structure is the part that transfers as-is.
-- **`workflows/issue-triage-to-milestones.js`**: the "AI-native planning"
-  ceremony (practice 6). A three-phase agent workflow (gather every open
-  issue → fan out a panel of lens reviewers over the whole set → synthesize
-  a milestone plan) that proposes a roadmap without mutating anything. Same
-  deal: project-specific bits are `<PLACEHOLDER: ...>`-marked. Fill in the
-  lens list and the gather-phase `gh` invocations (owner/project number) for
-  the new project.
 
 ## Guard telemetry: one log line per invocation, on every outcome path
 
 Give every guard (a hook, a lint gate, a cron) one log line per
-invocation, on every outcome path:
-`timestamp | guard | outcome | target`. Use a small fixed outcome
-vocabulary: `blocked`, `fired:<what>`, `clean`, `open:<reason>`,
-`override`. The line that matters most is the one for the common path.
-A guard that fails open without a trace is indistinguishable from a
-dead guard.
+invocation, on every outcome path. Five fields, separated by a pipe
+with no spaces around it, because a parser splitting on a bare pipe is
+the cheapest reader there is:
+
+```
+timestamp|guard|outcome|target|reason
+```
+
+Strip pipes, tabs and newlines out of every field as you write it, or a
+hostile command breaks the grammar. Use a small fixed outcome
+vocabulary: `blocked`, `clean`, `open:<reason>`, `override`. The line
+that matters most is the one for the common path. A guard that fails
+open without a trace is indistinguishable from a dead guard.
+
+Both shipped guards write exactly this, and `guardrail.test.js` asserts
+the field count against hostile input, so the test is the spec and this
+section describes it. Keep them in step: if you change one, change the
+other in the same commit.
 
 The log serves both directions of the two-strikes principle (kit
 README, principle 1). It is the evidence that a guard earns its place:
