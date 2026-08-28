@@ -18,7 +18,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 
 const CACHE = path.join(__dirname, '..', 'state', 'session-brief.json');
 // 30 minutes was fine when this brief carried only PR titles, which barely
@@ -89,6 +89,56 @@ function note(p) {
   return `  <- checks GREEN at ${at}, unmerged ${age}; nothing in it is live yet`;
 }
 
+// A project can ship its own re-check harness at `.claude/probes/run-all.js`.
+// If one exists, run it and report the verdict at session start.
+//
+// This runs OUTSIDE the cache below, deliberately. A probe result is a
+// freshness check, and a cached freshness check reports a stale verdict as
+// current — which is the exact failure the harness exists to catch.
+//
+// The contract is kept minimal so the kit does not own the harness's format:
+//   exit 0           every claim holds
+//   exit non-zero    something needs attention; the full output is shown
+//   last stdout line a one-line summary
+//
+// A harness that cannot run is REPORTED, never silent. "No probes here" and
+// "the probes are broken" must not look the same, or the second one hides
+// behind the first for as long as it takes someone to notice.
+// Overridable so the selftest can exercise the timeout path in milliseconds
+// instead of stalling CI for twenty seconds. A timeout branch that has never
+// run is not a branch you have.
+const PROBE_TIMEOUT_MS = Number(process.env.CLAUDE_PROBE_TIMEOUT_MS) || 20000;
+const PROBE_UNVERIFIED = 'Treat every behavioural note as unverified.';
+
+function probeSection(dir) {
+  const probes = path.join(dir, '.claude', 'probes', 'run-all.js');
+  if (!fs.existsSync(probes)) return '';
+
+  let r;
+  try {
+    r = spawnSync(process.execPath, [probes], {
+      cwd: dir,
+      encoding: 'utf8',
+      timeout: PROBE_TIMEOUT_MS,
+    });
+  } catch {
+    return 'Probes: the harness could not be started. ' + PROBE_UNVERIFIED;
+  }
+
+  // status === null means killed, which for spawnSync means the timeout.
+  if (r.error || r.status === null) {
+    const why = r.status === null ? 'timed out' : 'did not complete';
+    return 'Probes: the harness ' + why + '. ' + PROBE_UNVERIFIED;
+  }
+
+  const out = String(r.stdout || '').trimEnd();
+  const lines = out.split('\n').filter((l) => l.trim());
+  if (r.status === 0) {
+    return 'Probes: ' + (lines.length ? lines[lines.length - 1].trim() : '(no output)');
+  }
+  return `PROBES NEED ATTENTION (exit ${r.status}):\n${out || '(no output)'}`;
+}
+
 function build() {
   let repo;
   try {
@@ -148,7 +198,7 @@ function build() {
 
 // Importable for the selftest; the hook body runs only when invoked directly.
 if (require.main !== module) {
-  module.exports = { note };
+  module.exports = { note, probeSection };
   return;
 }
 
@@ -175,7 +225,13 @@ try {
     }
   }
 
-  if (text) process.stdout.write(text + '\n');
+  // The PR brief is cached; the probe verdict is not. Compose them here so
+  // a project with no GitHub remote still gets its probe line.
+  const sections = [];
+  if (text) sections.push(text);
+  const probes = probeSection(cwd);
+  if (probes) sections.push(probes);
+  if (sections.length) process.stdout.write(sections.join('\n\n') + '\n');
 } catch {
   /* never block session start */
 }
