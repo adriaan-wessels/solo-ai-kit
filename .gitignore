@@ -4,3 +4,7 @@ Thumbs.db
 
 # Personal Claude Code settings and state (not part of the shareable kit)
 .claude/
+
+# Log written if a hook is ever run from the kit source tree (real installs
+# write to the project's git-ignored .claude/state/ instead).
+claude/state/

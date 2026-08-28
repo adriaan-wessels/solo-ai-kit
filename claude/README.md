@@ -90,7 +90,13 @@ duplicates.
   mode there is), `git stash` while agents run in parallel, blanket process
   kills, release-asset `--clobber`, pushes to master/main. **Tune the rule
   list per project**; a rule earns its place once it has actually cost you
-  something. `CLAUDE_GUARDRAIL_OFF=1` disables all of them.
+  something. `CLAUDE_GUARDRAIL_OFF=1` disables enforcement, but not the
+  record: the override still writes its own log line, because an override
+  you cannot see is the same as no guard. Every invocation writes one line
+  to `state/guardrail.log` under the guard-telemetry grammar below —
+  `blocked`, `clean`, `open:<reason>` or `override`. Run
+  `node hooks/guardrail.test.js` before you deploy any rule change; it
+  replays the rules and asserts that each outcome path still logs.
 - **`hooks/agent-ledger.js` + `hooks/prompt-context.js`**: the other half of
   stall detection, for the case where a subagent hangs and emits *no*
   completion event, so its absence looks identical to "still working" and
