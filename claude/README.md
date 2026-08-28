@@ -102,7 +102,7 @@ duplicates.
   something. `CLAUDE_GUARDRAIL_OFF=1` disables enforcement, but not the
   record: the override still writes its own log line, because an override
   you cannot see is the same as no guard. Every invocation writes one line
-  to `state/guardrail.log` under the guard-telemetry grammar below —
+  to `state/guardrail.log` under the guard-telemetry grammar below:
   `blocked`, `clean`, `open:<reason>` or `override`. Run
   `node hooks/guardrail.test.js` before you deploy any rule change; it
   replays the rules and asserts that each outcome path still logs.
@@ -223,12 +223,24 @@ Two things worth knowing if you adapt it:
 ## Guard telemetry: one log line per invocation, on every outcome path
 
 Give every guard (a hook, a lint gate, a cron) one log line per
-invocation, on every outcome path:
-`timestamp | guard | outcome | target`. Use a small fixed outcome
-vocabulary: `blocked`, `fired:<what>`, `clean`, `open:<reason>`,
-`override`. The line that matters most is the one for the common path.
-A guard that fails open without a trace is indistinguishable from a
-dead guard.
+invocation, on every outcome path. Five fields, separated by a pipe
+with no spaces around it, because a parser splitting on a bare pipe is
+the cheapest reader there is:
+
+```
+timestamp|guard|outcome|target|reason
+```
+
+Strip pipes, tabs and newlines out of every field as you write it, or a
+hostile command breaks the grammar. Use a small fixed outcome
+vocabulary: `blocked`, `clean`, `open:<reason>`, `override`. The line
+that matters most is the one for the common path. A guard that fails
+open without a trace is indistinguishable from a dead guard.
+
+Both shipped guards write exactly this, and `guardrail.test.js` asserts
+the field count against hostile input, so the test is the spec and this
+section describes it. Keep them in step: if you change one, change the
+other in the same commit.
 
 The log serves both directions of the two-strikes principle (kit
 README, principle 1). It is the evidence that a guard earns its place:
