@@ -1,0 +1,93 @@
+# CI for the kit's own repo.
+#
+# The kit tells every new project to gate merges on a green required check
+# (README, practice 5). This is that check, applied to the kit itself.
+#
+# Two things run here, cheapest first:
+#   1. a syntax check over every script the kit ships, and
+#   2. the guardrail replay harness, which is the only real test suite here.
+#
+# Scope note, kept honest on purpose: this covers claude/ and scripts/ only.
+# templates/ is excluded because those files carry <PLACEHOLDER> markers and
+# are not meant to parse. For what stays unverified, see claude/README.md,
+# "Corpus replay for guards that classify text".
+#
+# Every step fails loudly when it finds nothing to check. A syntax pass over
+# zero files is a vacuous green, which is worse than no check at all
+# (README, principle 3).
+
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  check:
+    # This name is what branch protection's required-status-check matches.
+    name: Hooks and scripts
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: JavaScript syntax
+        run: |
+          set -eu
+          files=$(find claude scripts -name '*.js' -type f | sort)
+          [ -n "$files" ] || { echo "::error::no .js files found; this check is vacuous"; exit 1; }
+          bad=0
+          for f in $files; do
+            if node --check "$f"; then echo "ok   $f"; else echo "::error file=$f::JavaScript syntax error"; bad=1; fi
+          done
+          exit $bad
+
+      - name: Shell syntax
+        run: |
+          set -eu
+          files=$(find claude scripts -name '*.sh' -type f | sort)
+          [ -n "$files" ] || { echo "::error::no .sh files found; this check is vacuous"; exit 1; }
+          bad=0
+          for f in $files; do
+            if bash -n "$f"; then echo "ok   $f"; else echo "::error file=$f::shell syntax error"; bad=1; fi
+          done
+          exit $bad
+
+      - name: JSON syntax
+        run: |
+          set -eu
+          files=$(find claude scripts -name '*.json' -type f | sort)
+          [ -n "$files" ] || { echo "::error::no .json files found; this check is vacuous"; exit 1; }
+          bad=0
+          for f in $files; do
+            if node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$f"; then echo "ok   $f"; else echo "::error file=$f::invalid JSON"; bad=1; fi
+          done
+          exit $bad
+
+      - name: PowerShell syntax
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path claude,scripts -Recurse -Filter *.ps1
+          if ($files.Count -eq 0) { Write-Output "::error::no .ps1 files found; this check is vacuous"; exit 1 }
+          $bad = 0
+          foreach ($f in $files) {
+            $e = $null
+            $null = [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$e)
+            if ($e -and $e.Count) {
+              Write-Output "::error file=$($f.FullName)::PowerShell parse error: $($e[0].Message)"
+              $bad = 1
+            } else {
+              Write-Output "ok   $($f.FullName)"
+            }
+          }
+          exit $bad
+
+      - name: Guardrail replay harness
+        run: node claude/hooks/guardrail.test.js
