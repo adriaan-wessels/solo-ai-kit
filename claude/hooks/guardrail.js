@@ -188,12 +188,22 @@ function maskQuoted(s) {
 // handles `<<TAG`, `<<-TAG` and a quoted `<<'TAG'`, and leaves `<<<` alone.
 function maskHeredocs(s) {
   const out = s.split('');
-  const start = /<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/g;
+  // The tag alphabet allows `-` and `.`, and a backslash-quoted `<<\TAG`,
+  // because real delimiters use all three: `<<'PR-BODY'`, `<<COMMIT-MSG` and
+  // `<<\EOF` are ordinary shell. Reading `PR-BODY` as the tag `PR` finds no
+  // terminator, and since #48 a missing terminator masks NOTHING, so the body
+  // reaches the rules and a PR description of the push ban is blocked on its
+  // own prose. Before #48 the same gap disarmed the guard instead. One defect,
+  // two faces, and closing the disarm turned the other one on.
+  const start = /<<-?[ \t]*\\?(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\1/g;
   let m;
   while ((m = start.exec(s)) !== null) {
     const nl = s.indexOf('\n', m.index);
     if (nl === -1) continue;
-    const term = new RegExp('^[ \t]*' + m[2] + '[ \t]*$', 'm');
+    // Escape the tag before it becomes a pattern. `.` and `-` are legal in a
+    // delimiter now and both mean something to a regex, so an unescaped
+    // `EOF.MD` would also terminate on `EOFXMD`.
+    const term = new RegExp('^[ \t]*' + m[2].replace(/[.*+?^${}()|[\]\\-]/g, '\\$&') + '[ \t]*$', 'm');
     const after = s.slice(nl + 1);
     const hit = after.match(term);
     // An UNTERMINATED heredoc masks nothing. Masking to end-of-string here

@@ -105,6 +105,20 @@ const ALLOWS = [
   'git push -u origin my-feature && gh pr create --base master --head my-feature --title x',
   'git push -u origin my-feature && echo "see master branch"',
   'git checkout -b feat/x && git push -u origin feat/x && gh pr create --base master',
+  // Delimiter shapes the tag alphabet used to reject. Each is ordinary shell,
+  // and each writes a PR body or a doc that DESCRIBES the push ban. Before the
+  // alphabet was widened, `PR-BODY` parsed as the tag `PR`, no terminator was
+  // found, and the body reached the rules as command text. Under the old
+  // end-of-string masking the same gap disarmed the guard instead, so these
+  // cases guard both faces of it.
+  "gh pr create --body-file - <<'PR-BODY'\nDo not run git push origin master.\nPR-BODY",
+  'gh pr create --body-file - <<PR-BODY\nDo not run git push origin master.\nPR-BODY',
+  'cat <<\\EOF > docs/rules.md\nNever do: git push origin master\nEOF',
+  'cat <<EOF.MD > d.md\nnever git push origin master\nEOF.MD',
+  // The tag becomes a regex, so it has to be escaped. Unescaped, the `.` in
+  // `EOF.MD` also matches `EOFXMD`, the mask ends on that line instead of the
+  // real terminator, and the push below it is exposed as command text.
+  'cat <<EOF.MD > d.md\nEOFXMD\ngit push origin master\nEOF.MD',
 ];
 
 // Quoted near-misses, one per rule. Each command CONTAINS a banned shape but
