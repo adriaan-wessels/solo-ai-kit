@@ -299,15 +299,21 @@ a missed catch in production.
 This repo now runs those replays in CI, on every push and pull request to
 `master`, next to a syntax check over every script in `claude/` and
 `scripts/`. Read what CI here does not cover before you trust it.
-`guardrail.js` and `subagent-stall-check.sh` are the only hooks with a
-test suite. The other six hooks, the workflow script, and the three
-PowerShell scripts get a syntax check and nothing more, so a hook that
-parses cleanly and behaves wrongly still ships green. `pr-merge-gate.js`
-is the sharpest of those: it classifies text, so this section's own rule
-says it needs a replay, and it does not have one. `bootstrap.ps1` is the
-widest. It creates repositories and sets branch protection, and no test
-exercises it. The syntax check is a floor, not a substitute. Write the
-replay for your own guards.
+Every hook that classifies text now has a replay: `guardrail.js`,
+`subagent-stall-check.sh`, `pr-merge-gate.js` and `session-start.js`.
+The remaining hooks, the workflow script, and the three PowerShell
+scripts get a syntax check and nothing more, so a hook that parses
+cleanly and behaves wrongly still ships green. `bootstrap.ps1` is the
+widest gap. It creates repositories and sets branch protection, and no
+test exercises it. The syntax check is a floor, not a substitute. Write
+the replay for your own guards.
+
+A replay covers what it reaches, and saying so is part of shipping one.
+The merge gate's harness exercises its exported classifiers, not the
+`main()` that wires them together, and its header says so with the
+measurement that proves it: swapping `maskQuoted(cmd)` for `cmd` inside
+`main()` leaves every case passing. Read a green replay as "the
+classifiers are right", never as "the hook is right".
 
 One thing worth copying from how the stall-check harness was built. Once
 it was green, every defect it was meant to catch was reintroduced one at
