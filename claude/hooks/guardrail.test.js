@@ -75,7 +75,16 @@ const denied = (r) => {
 
 // --- 1. Rule classification: what must block, and what must not -------------
 
-const BLOCKS = [['git push origin master', 'push-to-default-branch']];
+const BLOCKS = [
+  ['git push origin master', 'push-to-default-branch'],
+  // Chaining must not become a bypass. Scoping the refspec check to the push's
+  // own span (#6) is only correct if a real push to the default branch still
+  // blocks when something follows it.
+  ['git push origin master && gh pr create --base master', 'push-to-default-branch'],
+  ['echo setting up; git push origin master', 'push-to-default-branch'],
+  // `--dry-run` belongs to the push, not to whatever runs after it.
+  ['git push origin master && echo --dry-run', 'push-to-default-branch'],
+];
 
 for (const [cmd, rule] of BLOCKS) {
   const r = run(payload(cmd));
@@ -88,6 +97,14 @@ const ALLOWS = [
   'git push -u origin feat/some-branch',
   'git log --oneline -5',
   'git stash list',
+  // Every row from #6. The third is the one that fired three times in one day:
+  // it is the exact workflow this rule's own denial message tells you to run,
+  // and `--base master` was being read as the push's refspec.
+  'git push -u origin my-feature',
+  'gh pr create --base master --head my-feature --title x',
+  'git push -u origin my-feature && gh pr create --base master --head my-feature --title x',
+  'git push -u origin my-feature && echo "see master branch"',
+  'git checkout -b feat/x && git push -u origin feat/x && gh pr create --base master',
 ];
 
 // Quoted near-misses, one per rule. Each command CONTAINS a banned shape but
@@ -110,6 +127,35 @@ for (const cmd of ALLOWS) {
 for (const [rule, cmd] of QUOTED_NEAR_MISSES) {
   const r = run(payload(cmd));
   check(`quoted near-miss (${rule}): ${cmd}`, !denied(r) && r.outcome === 'clean', `blocked by ${r.target}`);
+}
+
+// Heredoc near-misses: the other half of #6. A heredoc BODY is text the
+// command carries, not text it runs — the same argument as the quoted cases
+// above. One real occurrence was a PR body written with `<<'EOF'`, which
+// tripped push-to-default-branch on its own prose.
+const HEREDOC_NEAR_MISSES = [
+  ['push-to-default-branch', "gh pr create --title x --body-file - <<'EOF'\ngit push origin master\nEOF"],
+  ['git-stash-ban', "gh pr comment 1 --body-file - <<'EOF'\nnever run git stash here\nEOF"],
+  // Unquoted delimiter, and an unbalanced apostrophe in the body: the quote
+  // that used to desynchronise maskQuoted for everything after it.
+  ['push-to-default-branch', "gh pr create --body-file - <<EOF\ndon't git push origin master\nEOF"],
+];
+
+for (const [rule, cmd] of HEREDOC_NEAR_MISSES) {
+  const r = run(payload(cmd));
+  check(`heredoc near-miss (${rule})`, !denied(r) && r.outcome === 'clean', `blocked by ${r.target}`);
+}
+
+// Heredoc masking must not open a hole either: a real push AFTER the
+// terminator is outside the body and still blocks.
+{
+  const cmd = "gh pr create --body-file - <<'EOF'\nsome pr body\nEOF\ngit push origin master";
+  const r = run(payload(cmd));
+  check(
+    'still blocks a real push after a heredoc',
+    denied(r) && r.target === 'push-to-default-branch',
+    `outcome=${r.outcome} target=${r.target}`,
+  );
 }
 
 // Masking must not open a hole: the same shapes unquoted still block.
