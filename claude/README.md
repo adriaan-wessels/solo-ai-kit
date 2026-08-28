@@ -135,7 +135,7 @@ duplicates.
   the title does not: conflicting, checks red, or finished-but-unmerged.
   The green case is stamped with the time it was read, because a claim
   about check state is worth exactly as much as its observation time.
-  Cached 5 minutes — long enough to collapse a burst of session starts,
+  Cached 5 minutes: long enough to collapse a burst of session starts,
   short enough to bound how stale a check-state claim can be right after a
   push. Read the header before adding sections: anything on this path has
   to be cheap.
