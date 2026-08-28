@@ -6,6 +6,15 @@ In the source project, this whole tree is git-ignored on purpose. It's
 personal automation tooling for working the project, not project source,
 so it can change freely between sessions without needing a PR.
 
+**That last rule holds for one person, and reverses above one.** With a
+team, commit the shared parts (`hooks/`, `skills/`, `commands/`) and
+git-ignore only each developer's local settings. The reason to keep it
+out of the repo was that nobody else reads it. Once somebody else does,
+keeping it private means each developer rebuilds the same tooling alone,
+or nobody builds it at all, and the guards that make agent work safe
+protect one machine instead of the codebase. See the kit README's "What
+transfers, and what does not".
+
 `scripts/bootstrap.ps1` copies it automatically for a new project (see
 the kit README's "Day-one bootstrap" section) and adds `.claude/` to the
 new project's `.gitignore` at the same time. If you set a project up by
