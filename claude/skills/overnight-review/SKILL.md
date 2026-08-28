@@ -318,9 +318,34 @@ the product (<PLACEHOLDER: e.g. "the core scoring/ranking function", "sync/
 reconcile", "auth">), would the suite actually catch a real regression?
 Where the environment allows, prove it: mutate the function in a **throwaway
 worktree/branch**, run the suite, and see if it reds, then discard, never
-touch the integrated branch. Where that's not practical, assess by reading
-whether a test actually *asserts* the behavior a break would change, versus
-just smoke-testing that it runs without throwing.
+touch the integrated branch.
+
+Three things decide whether that proof is worth anything:
+
+- **Write your own injection list. Never score the author's.** The agent
+  that wrote the code writes its tests from one picture of the problem,
+  and its injections from that same picture. Three layers blind in the
+  same direction, each raising confidence in the one below. A mutation
+  score the author ran is context, not evidence. If you are also the
+  agent that wrote the tests, say so in the report and mark the score
+  unverified rather than presenting it as a result.
+- **Bind every injection to the assertion that must report it.** Name
+  the assertion before you run. Otherwise a mutated copy that crashes,
+  or fails to compile, counts as a catch, and a proof mode that scores
+  on the exit code alone stops proving anything.
+- **Take fixtures from real logs where the code parses text a real
+  system emits** (error strings, API responses, CLI output), and record
+  where each one came from. Invented fixtures encode what the author
+  assumed the system emits, which is the same blind spot one layer down.
+  The real strings are usually one command away in the project's own
+  logs.
+
+Where mutation is not practical, you may fall back to reading whether a
+test actually *asserts* the behavior a break would change, versus just
+smoke-testing that it runs without throwing. Report that as a **weaker
+result, not an equivalent one**. A reviewer who reads a test's
+description and takes its word for it will pass a vacuous test; a
+reviewer who reintroduces the defect and watches will not.
 
 **Lenses:** coverage & gaps; pyramid shape & test-level selection (per the
 kit README's Definition of Done, prefer cheap unit/widget coverage over
@@ -553,6 +578,10 @@ integrated report:
 - P0/P1/P2 findings with evidence and filed-issue links, deduped, grouped by
   workstream/lens, with a "highest-leverage 10" call-out across everything.
 - Regression-catch probe results per critical path (protected/unprotected).
+  State who wrote the injection list for each path, and mark any score
+  whose list came from the agent that wrote the tests as **unverified**.
+  A self-run score reported without that label reads as evidence when it
+  is not.
 - **Prevention-layer classification:** tag every confirmed finding with the
   earliest layer that could realistically have caught it (a pre-merge
   review, a CI/lint gate, a test at a named level, spec/decision hygiene, or
