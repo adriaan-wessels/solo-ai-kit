@@ -131,8 +131,19 @@ duplicates.
 - **`hooks/session-start.js`**: injects open PRs for the current repo at
   session start (dependabot collapsed to a count), so orientation is
   something the agent has rather than something it must remember to fetch.
-  Cached 30 minutes. Read the header before adding sections: anything on
-  this path has to be cheap.
+  Each PR carries a one-line annotation, and only when it says something
+  the title does not: conflicting, checks red, or finished-but-unmerged.
+  The green case is stamped with the time it was read, because a claim
+  about check state is worth exactly as much as its observation time.
+  Cached 5 minutes — long enough to collapse a burst of session starts,
+  short enough to bound how stale a check-state claim can be right after a
+  push. Read the header before adding sections: anything on this path has
+  to be cheap.
+- **`hooks/session-start.selftest.js`**: 16 assertions over that
+  annotation. The behaviour is a judgement rather than a fetch, so it is
+  testable without the network. `--prove` reintroduces four real defects
+  and requires the suite to go red for each one. CI runs both, because a
+  suite that cannot fail is not evidence.
 - **`hooks/branch-sweep.sh`**: mechanical cleanup of provably-dead local
   branches and worktrees. The root cause: squash-merge auto-deletes only
   the remote branch, so every merged PR strands a local one (74 had

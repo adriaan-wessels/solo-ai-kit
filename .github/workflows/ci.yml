@@ -5,8 +5,9 @@
 #
 # Two things run here, cheapest first:
 #   1. a syntax check over every script the kit ships, and
-#   2. the replay harnesses, which are the only real test suites here:
-#      guardrail.test.js and subagent-stall-check.test.sh.
+#   2. the replay harnesses and selftests, which are the only real test
+#      suites here: guardrail.test.js, subagent-stall-check.test.sh and
+#      session-start.selftest.js (which also runs its own --prove pass).
 #
 # Scope note, kept honest on purpose: this covers claude/ and scripts/ only.
 # templates/ is excluded because those files carry <PLACEHOLDER> markers and
@@ -95,3 +96,13 @@ jobs:
 
       - name: Stall-check replay harness
         run: bash claude/hooks/subagent-stall-check.test.sh
+
+      - name: Session-start selftest
+        run: node claude/hooks/session-start.selftest.js
+
+      # The suite above is evidence only if it can fail. --prove reintroduces
+      # four real defects and requires the suite to go red for each one, so a
+      # selftest that has quietly stopped asserting anything fails here
+      # instead of passing green forever (README, principle 3).
+      - name: Session-start selftest can fail
+        run: node claude/hooks/session-start.selftest.js --prove
