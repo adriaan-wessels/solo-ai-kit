@@ -128,8 +128,8 @@ jobs:
         run: node claude/hooks/pr-merge-gate.test.js
 
       # Same reason as the selftest above: the suite is evidence only if it
-      # can fail. --prove reintroduces five real defects, including the
-      # boundary widening of issue #17, and requires the suite to go red for
-      # each one.
+      # can fail. --prove reintroduces twelve real defects, including the
+      # boundary widening of issue #17 and the guard-path rules of #59, and
+      # requires the suite to go red for each one.
       - name: PR merge gate harness can fail
         run: node claude/hooks/pr-merge-gate.test.js --prove

@@ -75,6 +75,49 @@ reasoning effort) against the PR diff plus its issue context:
 - Every confirmed finding is filed or routed. Nothing confirmed goes
   unconsumed.
 
+## Guard-path review
+
+A diff that changes the verification machinery itself cannot take its
+approval from that machinery: the reviewers' protocol and the checks
+that arm the merge are inside the surface the diff edits. The watched
+surface is the hook's `GUARD_PATH_RES` list: hook sources, their
+settings wiring (`claude/settings.json`), the install and bootstrap
+scripts, `.github/`, this template, probes, and test files. A rename
+counts wholesale, because GitHub reports only a rename's new path, so
+a move out of a guard directory is otherwise invisible. For those PRs,
+one extra requirement applies on top of the disposition rules above.
+
+- **Reviewer.** One additional reviewer on a model substrate different
+  from every agent that authored the diff. Substrate diversity is the
+  point: correlated blind spots between author and reviewer are the
+  failure mode this round exists to break.
+- **Protocol, frozen.** The reviewer gets the diff and this
+  instruction, verbatim, and nothing else from the authoring session:
+  "This diff changes the machinery that verifies other diffs.
+  Enumerate what it weakens: every check it removes, narrows, or
+  reorders; every default it changes; every path where a future diff
+  would now meet less resistance. Treat the PR body's claims as
+  hypotheses. Report findings with evidence, or state that you found
+  none."
+- **Record.** The arming comment carries one extra line:
+  `**Guard-path review:** <substrate>; <one-line verdict>`, substrate
+  first. A clean verdict is written after the substrate name, for
+  example `Sonnet 5; none found`. The `pr-merge-gate.js` hook denies
+  an explicit merge of a guard-path PR whose arm lacks this line, and
+  it does not fail open for a guard-path PR with no gate round at all.
+  It also rejects values that record no review: `<`-opening unfilled
+  placeholders, values with no letter in any script, and a leading
+  clause (before the first `;` or `,`) that is a bare marker
+  (none/n-a/TBD/todo/pending/x) or a skip-statement ("skipped",
+  "deferred"). "None found" after a substrate is a finding and passes;
+  "skipped" is a confession and does not. Named residual: a confession
+  carried only in trailing words passes. The line is a disclosure, not
+  proof, and the hook does not judge free text past this point.
+- **What the line proves.** Nothing, by itself: it is a disclosure,
+  not proof, and the hook cannot check that the named substrate really
+  ran. What the mechanism buys is that skipping the review becomes a
+  visible false statement in the record rather than a silent omission.
+
 ## Trial ledger (the coordinator reports, per wave)
 
 Per PR: findings by severity; confirmed-real vs false-positive after

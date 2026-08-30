@@ -125,6 +125,72 @@
 // disclosed trade-off, not an oversight.
 //
 // ----------------------------------------------------------------------
+// GUARD-PATH REVIEW
+// ----------------------------------------------------------------------
+//
+// A PR that changes the verification machinery is approved by that same
+// machinery: hook sources, their settings wiring, the install and
+// bootstrap scripts, workflows, the gate template, probes, and test
+// files all live in the repo, and agent review of such a diff is
+// self-review moved one level up. Nobody human reads diffs in this
+// operating model, so the tracker issue "A diff that changes the
+// verification machinery is approved by the machinery it changes" asked
+// for a mechanical requirement instead. This is its hook-scoped half.
+//
+// When the PR's changed files touch a guard path (GUARD_PATH_RES), the
+// gate tightens in two ways:
+//
+//   1. The usual fail-opens become denies. No gate comment at all, or a
+//      heading with no recognizable disposition, blocks instead of
+//      warning. Guard paths change rarely and deliberately, so the
+//      false-positive cost of hard-blocking is one the precision can
+//      sustain (kit README, principle 6).
+//
+//   2. A clean, current ARM is not enough. The arming comment must also
+//      carry a `**Guard-path review:** <substrate>` line, recording an
+//      independent review on a model substrate different from the
+//      authoring agents, run to the frozen protocol in
+//      `templates/adversarial-review-gate.md` ("Guard-path review").
+//      The line is accepted in plain, bold, bulleted, numbered, or
+//      quoted form, with the colon inside or outside the bold. Values
+//      that record no review are rejected: '<'-opening template
+//      placeholders, values with no letter in any script, and a
+//      leading clause (before the first ';' or ',') that is a bare
+//      marker (none/n-a/TBD/todo/pending/x) or a skip-statement.
+//      "Sonnet; none found" stays valid: "none found" is a finding,
+//      "skipped" is a confession. Named residual: a confession carried
+//      only in trailing words passes; the line is a disclosure, not
+//      proof.
+//
+// State plainly what this measures and what it cannot. The hook checks
+// that the line EXISTS on a current arm. It cannot verify that the
+// named substrate really reviewed anything: that claim is judged-side
+// evidence, a disclosure and not a proof. What the mechanism buys is
+// that the disclosure must exist, be attached to the arm, and be
+// current, so skipping the review becomes a visible false statement in
+// the record rather than a silent omission.
+//
+// Detection edges, closed by the PR's own guard-path review round: a
+// RENAME counts as guard-touching wholesale, because GitHub reports
+// only the new path and a move out of a guard directory would
+// otherwise be invisible; and a changed-file list gh TRUNCATES (the
+// 100-file cap of `--json files`, cli/cli#5368) is demoted to
+// unreadable by comparing `changedFiles` against the list length, so a
+// guard file hiding past the cap reads as "could not check", never as
+// "not touched". The demotion applies only to a NEGATIVE result: a
+// guard file gh did report is positive evidence and keeps its deny
+// even when the list is incomplete. Round 2 of the review caught the
+// first cut of this fix discarding exactly that evidence.
+//
+// The known limit is the hook's own: this protects explicit merge
+// commands only. The server-side half (auto-merge firing on a later
+// green) is the ruleset-required status the tracker issue holds as its
+// blocked item. And if the changed-file list cannot be read in full,
+// this check fails open with a warning (logged as
+// open:guard-files-unreadable), like every other unreadable input
+// here.
+//
+// ----------------------------------------------------------------------
 // TRIGGER MATCHING
 // ----------------------------------------------------------------------
 //
@@ -202,6 +268,60 @@ const DISPOSITION_LINE_RE = /^\**Disposition:/i;
 const SYNC_COMMIT_RE = /^Merge (branch|remote-tracking branch|pull request)\b/i;
 const SHA_CITE_RE = /`([0-9a-f]{6,40})`/i;
 
+// Guard paths. The tracker issue's list, widened once by the PR's own
+// guard-path review round: the wiring file (claude/settings.json) and
+// the machine-global installer joined it, because an edit that disarms
+// the gate must not meet less resistance than an edit to the gate
+// itself. Test-file patterns cover the suffixes downstream projects
+// actually use. Paths come from `gh pr view --json files` and use
+// forward slashes; isGuardPath() normalizes backslashes anyway. Honesty
+// note for this repo: `.claude/` is untracked here (.gitignore), so the
+// `.claude/` clause binds only downstream projects that commit it.
+const GUARD_PATH_RES = [
+  /^claude\/hooks\//i,
+  /^claude\/settings\.json$/i,
+  /^scripts\/install-global-hooks\.ps1$/i,
+  /^scripts\/bootstrap\.ps1$/i,
+  /^\.github\//i,
+  /^templates\/adversarial-review-gate\.md$/i,
+  /^\.claude\//i,
+  /\.(test|spec|selftest)\.[a-z0-9]+$/i,
+  /_test\.[a-z0-9]+$/i,
+  /(^|\/)test_[^/]+\.py$/i,
+];
+// The review line is matched on a normalized copy of each body line
+// (leading list/quote markers and every '*' stripped), so the bullet
+// form the template itself renders is accepted, and so is the colon
+// outside the bold. Placeholder values that state no review happened
+// are rejected: the line records a review, and "none" is not one.
+const GUARD_REVIEW_VALUE_RE = /^Guard-path review:\s*(\S.*)$/i;
+
+// isPlaceholderReviewValue(v) -> true when the review line's value does
+// not record a review. '<'-opening values are unfilled template
+// placeholders (parentheses, brackets, and markdown links are
+// legitimate substrate spellings); a value with no letter in any
+// script is punctuation; and the LEADING CLAUSE (before the first ';'
+// or ',', where the substrate-first format names the reviewer) must
+// not be a bare marker or a skip-statement. "Sonnet 5; one residual
+// deferred to a follow-up" is a review whose verdict mentions
+// deferral; "deferred to a follow-up" alone is not a review. Round 3's
+// catch: the whole-value scan rejected exactly the phrasing this kit's
+// own residuals use. Named residual, the deliberate trade: a
+// confession carried only in trailing words ("pending a second
+// substrate") passes; the line is a disclosure, not proof, and
+// content-validating free text past this point buys false positives
+// principle 6 cannot sustain. "Sonnet; none found" stays valid: "none
+// found" is a finding, "skipped" is a confession.
+function isPlaceholderReviewValue(v) {
+  const value = String(v).trim();
+  if (!/\p{L}/u.test(value)) return true;
+  if (/^</.test(value)) return true;
+  const lead = value.split(/[;,]/, 1)[0].trim();
+  if (/^(none|n\.?\/?a\.?|tbd|todo|pending|x)[.!]?$/i.test(lead)) return true;
+  if (/\bskip(ped|s)?\b|\bdeferred\b|fill (me )?in/i.test(lead)) return true;
+  return false;
+}
+
 const BOUNDARY = '(?:^|[;&|\\r\\n])\\s*';
 const GH_MERGE_RE = new RegExp(BOUNDARY + '(gh\\s+pr\\s+merge\\b)', 'i');
 const SAFE_MERGE_RE = new RegExp(BOUNDARY + '((?:bash\\s+|sh\\s+|\\.[\\\\/])?\\S*safe_merge\\.sh\\b)', 'i');
@@ -235,6 +355,66 @@ function classify(body) {
   if (BLOCK_RE.test(signal)) return 'BLOCKED';
   if (ARM_RE.test(signal)) return 'ARMED';
   return 'UNKNOWN';
+}
+
+// isGuardPath(path) -> does this changed file edit the verification
+// machinery. See the GUARD-PATH REVIEW section in the header.
+function isGuardPath(p) {
+  const norm = String(p || '').replace(/\\/g, '/');
+  return GUARD_PATH_RES.some((re) => re.test(norm));
+}
+
+// guardTouchedFiles(files) -> labels of the changed files that require
+// a guard-path review: every path matching GUARD_PATH_RES, plus every
+// rename. GitHub reports only a rename's NEW path, so a move OUT of a
+// guard directory is otherwise invisible; renames are rare enough to
+// carry the requirement wholesale (kit README, principle 6).
+function guardTouchedFiles(files) {
+  const out = [];
+  for (const f of files || []) {
+    if (!f) continue;
+    const p = String(f.path || '');
+    if (isGuardPath(p)) out.push(p);
+    else if (p && String(f.changeType || '').toUpperCase() === 'RENAMED') out.push(`${p} (renamed)`);
+  }
+  return out;
+}
+
+// hasGuardPathReview(body) -> does this gate comment carry a
+// `Guard-path review: <substrate>` line whose value names a review
+// rather than the absence of one. The line is a disclosure, not proof;
+// the header states what that buys.
+function hasGuardPathReview(body) {
+  if (typeof body !== 'string') return false;
+  return bodyLines(body).some((l) => {
+    const norm = l
+      .replace(/^(?:[-*+]\s+|\d+[.)]\s+|>\s+)*/, '')
+      .replace(/\*/g, '')
+      .trim();
+    const m = norm.match(GUARD_REVIEW_VALUE_RE);
+    return !!m && !isPlaceholderReviewValue(m[1]);
+  });
+}
+
+// resolveGuardTouched(files, changedFiles) -> the guard labels for this
+// PR, [] for a definite "none touched", or null for "unreadable". The
+// 100-file truncation of `--json files` (cli/cli#5368) demotes only a
+// NEGATIVE result: a guard file gh did report is positive evidence and
+// keeps its deny even when the list is incomplete. Round 2 of the
+// guard-path review caught the first cut discarding that evidence.
+function resolveGuardTouched(files, changedFiles) {
+  if (!Array.isArray(files)) return null;
+  // An entry without a usable path makes the whole list unreliable, so
+  // it reads as unreadable (fail open with the warning), never as
+  // evidence of anything. Round 3: an empty-path rename had drifted
+  // from fail-closed to a definite "not touched".
+  for (const f of files) {
+    if (!f || typeof f.path !== 'string' || !f.path) return null;
+  }
+  const visible = guardTouchedFiles(files);
+  if (visible.length) return visible;
+  const truncated = Number.isFinite(changedFiles) && changedFiles > files.length;
+  return truncated ? null : visible;
 }
 
 // findStaleness({heading, commits, armTs}) -> a stale commit object, or
@@ -302,6 +482,10 @@ module.exports = {
   ARM_RE,
   SYNC_COMMIT_RE,
   SHA_CITE_RE,
+  GUARD_PATH_RES,
+  GUARD_REVIEW_VALUE_RE,
+  isPlaceholderReviewValue,
+  resolveGuardTouched,
   GH_MERGE_RE,
   SAFE_MERGE_RE,
   CHEAP_PREFILTER_RE,
@@ -309,6 +493,9 @@ module.exports = {
   PWSH_OVERRIDE_RE,
   isGateComment,
   classify,
+  isGuardPath,
+  guardTouchedFiles,
+  hasGuardPathReview,
   findStaleness,
   maskQuoted,
   sliceToOperator,
@@ -365,12 +552,13 @@ function main() {
     }
   }
 
-  function allow(warning) {
+  function allow(warning, slug) {
     // Telemetry: every engaged outcome leaves a row. A gate whose majority
     // outcome (fail-open) is unrecorded is indistinguishable from an
-    // uninstalled one. `clean` = verified current ARM; `open:...` = fail-open.
+    // uninstalled one. `clean` = verified current ARM; `open:...` = fail-open
+    // (callers may pass a more specific open:<slug>).
     log(
-      warning ? 'open:fail-open' : 'clean',
+      warning ? (slug || 'open:fail-open') : 'clean',
       prNumber ? `#${prNumber}` : '(unresolved)',
       warning || 'clean current ARM verified; merge allowed'
     );
@@ -468,7 +656,7 @@ function main() {
 
   let data;
   try {
-    data = JSON.parse(ghCall(['pr', 'view', prNumber, '--json', 'comments,commits,state,mergedAt']));
+    data = JSON.parse(ghCall(['pr', 'view', prNumber, '--json', 'comments,commits,state,mergedAt,files,changedFiles']));
   } catch {
     allow(
       `could not read PR #${prNumber} (gh failed or PR not found). Allowing; verify the gate round manually before merging.`
@@ -483,11 +671,38 @@ function main() {
   const comments = Array.isArray(data.comments) ? data.comments : [];
   const commits = Array.isArray(data.commits) ? data.commits : [];
 
+  // Guard-path detection (see GUARD-PATH REVIEW in the header). null =
+  // unreadable, fails open later with a warning; [] = definite "no guard
+  // paths touched". Truncation and positive-evidence handling live in
+  // resolveGuardTouched, where the suite can reach them.
+  const guardTouched = resolveGuardTouched(data.files, data.changedFiles);
+  const guardList =
+    guardTouched && guardTouched.length
+      ? guardTouched.slice(0, 5).join(', ') + (guardTouched.length > 5 ? ` and ${guardTouched.length - 5} more` : '')
+      : '';
+  // A renamed docs file is not "machinery"; it is watched because GitHub
+  // hides its old path. Say so instead of asserting something untrue.
+  const renameNote =
+    guardTouched && guardTouched.some((l) => l.endsWith('(renamed)'))
+      ? ' Renamed files count because GitHub reports only their new path, so a move out of a guard directory is otherwise invisible.'
+      : '';
+
   const gateComments = comments
     .filter((c) => isGateComment(c.body))
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 
   if (!gateComments.length) {
+    if (guardTouched && guardTouched.length) {
+      const reason = `PR #${prNumber} touches the verification machinery (${guardList}) and has no "## ...gate..." comment at all. Guard-path PRs do not fail open.${renameNote}`;
+      log('blocked', `#${prNumber}`, 'guard-path: no gate round');
+      if (override) {
+        log('override', `#${prNumber}`, `guard-path-no-round; command="${cmd}"`);
+        allow(`OVERRIDE used on PR #${prNumber}. ${reason} Logged to ${LOG}.`);
+      }
+      deny(
+        `${reason} Run a gate round with an independent guard-path review and post its arming comment first (templates/adversarial-review-gate.md, "Guard-path review"). Deliberate override: ${OVERRIDE_HELP}`
+      );
+    }
     allow(
       `PR #${prNumber} has no "## ...gate..." comment yet (the pre-merge review gate). Nothing to check against, so allowing. If this PR is meant to go through the pre-merge gate, get a round posted first.`
     );
@@ -508,6 +723,17 @@ function main() {
   }
 
   if (disposition === 'UNKNOWN') {
+    if (guardTouched && guardTouched.length) {
+      const reason = `PR #${prNumber} touches the verification machinery (${guardList}), and its most recent gate comment (${last.createdAt}) has no recognizable ARM/BLOCK disposition: "${heading}". Guard-path PRs do not fail open.${renameNote}`;
+      log('blocked', `#${prNumber}`, 'guard-path: unknown disposition');
+      if (override) {
+        log('override', `#${prNumber}`, `guard-path-unknown; command="${cmd}"`);
+        allow(`OVERRIDE used on PR #${prNumber}. ${reason} Logged to ${LOG}.`);
+      }
+      deny(
+        `${reason} Post a clean arming comment that carries a "Guard-path review:" line (templates/adversarial-review-gate.md, "Guard-path review"). Deliberate override: ${OVERRIDE_HELP}`
+      );
+    }
     allow(
       `PR #${prNumber}'s most recent gate comment (${last.createdAt}) has no recognizable ARM/BLOCK disposition: "${heading}". Allowing; verify manually.`
     );
@@ -529,9 +755,37 @@ function main() {
     deny(`${reason} Get a fresh gate comment confirming ARM for the current HEAD before merging. Deliberate override: ${OVERRIDE_HELP}`);
   }
 
+  if (guardTouched && guardTouched.length && !hasGuardPathReview(last.body)) {
+    const reason =
+      `PR #${prNumber} touches the verification machinery (${guardList}), and its arming gate comment (${last.createdAt}) ` +
+      `records no guard-path review. This diff is reviewed by the machinery it changes, so the arm alone is self-review.${renameNote}`;
+    log('blocked', `#${prNumber}`, 'guard-path: no review line');
+    if (override) {
+      log('override', `#${prNumber}`, `guard-path-no-review; command="${cmd}"`);
+      allow(`OVERRIDE used on PR #${prNumber}. ${reason} Logged to ${LOG}.`);
+    }
+    deny(
+      `${reason} Get an independent review on a different model substrate and re-post the arm with a ` +
+      `"Guard-path review:" line naming the reviewing substrate and its verdict (templates/adversarial-review-gate.md, "Guard-path review"). Deliberate override: ${OVERRIDE_HELP}`
+    );
+  }
+
+  if (guardTouched === null) {
+    allow(
+      `PR #${prNumber}: clean current ARM verified, but the changed-file list could not be read in full (gh omitted it, or the PR exceeds the 100-file cap of --json files), so the guard-path review requirement was not checked. Verify manually if this PR touches hooks, workflows, settings, the gate template, or tests.`,
+      'open:guard-files-unreadable'
+    );
+  }
+
   // Clean: most recent gate comment is an ARM disposition and nothing
   // unaccounted-for has landed since. Let it through, leaving the telemetry
   // row that makes a quiet gate distinguishable from a dead one.
-  log('clean', `#${prNumber}`, `clean current ARM verified ("${heading}")`);
+  log(
+    'clean',
+    `#${prNumber}`,
+    guardTouched && guardTouched.length
+      ? `clean current ARM with guard-path review verified ("${heading}")`
+      : `clean current ARM verified ("${heading}")`
+  );
   process.exit(0);
 }

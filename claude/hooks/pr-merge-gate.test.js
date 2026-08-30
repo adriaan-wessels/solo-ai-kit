@@ -34,10 +34,14 @@
 // EXPORTED classifiers. They do not run `main()`, so they cannot catch a
 // regression in how main() wires those classifiers together. Measured, not
 // assumed: replacing `maskQuoted(cmd)` with `cmd` inside main() leaves every
-// case below passing. Covering that needs the hook run as a subprocess
-// against a real PR, which is not something CI can do offline. Until then,
-// treat a green run here as "the classifiers are right", never as "the hook
-// is right".
+// case below passing. Covering that does NOT need a real PR: two review
+// rounds on #61 each built a subprocess harness with a stubbed gh (a
+// node -r preload replacing child_process.execFileSync) and drove main()
+// offline. An earlier revision of this header claimed offline coverage was
+// impossible; that claim was refuted live, twice. The committed version of
+// that harness is a named follow-up of the #59 review round; #59 is the
+// decision-of-record for it. Until it lands, treat a green run here as
+// "the classifiers are right", never as "the hook is right".
 
 const fs = require('fs');
 const os = require('os');
@@ -89,6 +93,41 @@ if (process.argv.includes('--prove')) {
       'the cheap prefilter stops recognising the wrapper script',
       String.raw`const CHEAP_PREFILTER_RE = /gh\s+pr\s+merge|safe_merge\.sh/i;`,
       String.raw`const CHEAP_PREFILTER_RE = /gh\s+pr\s+merge/i;`,
+    ],
+    [
+      'hook sources stop counting as guard paths: the machinery edits itself unwatched',
+      String.raw`  /^claude\/hooks\//i,`,
+      String.raw`  /^NEVERMATCHTHIS\//i,`,
+    ],
+    [
+      'the guard-path review line matches anything, so its absence never blocks',
+      String.raw`const GUARD_REVIEW_VALUE_RE = /^Guard-path review:\s*(\S.*)$/i;`,
+      String.raw`const GUARD_REVIEW_VALUE_RE = /^(.*)$/i;`,
+    ],
+    [
+      'skip-statements start counting as reviews',
+      String.raw`  if (/\bskip(ped|s)?\b|\bdeferred\b|fill (me )?in/i.test(lead)) return true;`,
+      String.raw`  if (false) return true;`,
+    ],
+    [
+      'the wiring file stops counting: disarming the gate via settings goes unwatched',
+      String.raw`  /^claude\/settings\.json$/i,`,
+      String.raw`  /^NEVERMATCHTHISTWO$/i,`,
+    ],
+    [
+      'renames stop counting: a move out of a guard directory goes unwatched',
+      String.raw`.toUpperCase() === 'RENAMED'`,
+      String.raw`.toUpperCase() === 'NEVERRENAMED'`,
+    ],
+    [
+      'truncation stops demoting: a guard file past the 100-file cap reads as not touched',
+      String.raw`  const truncated = Number.isFinite(changedFiles) && changedFiles > files.length;`,
+      String.raw`  const truncated = false;`,
+    ],
+    [
+      'truncation demotes positive evidence: a visible guard file loses its deny on big PRs',
+      String.raw`  if (visible.length) return visible;`,
+      String.raw`  if (false) return visible;`,
     ],
   ];
 
@@ -288,6 +327,220 @@ for (const cmd of [
 ]) {
   check(`prefilter: does not drop ${JSON.stringify(cmd).slice(0, 40)}`, g.CHEAP_PREFILTER_RE.test(cmd));
 }
+
+// --- 7. Guard paths: the machinery may not approve its own edit -------------
+//
+// isGuardPath/hasGuardPathReview are the classifiers behind the guard-path
+// review requirement (hook header, GUARD-PATH REVIEW). Same scope caveat as
+// everything in this file: main()'s wiring of these is not covered here.
+
+check('guard path: a hook source', g.isGuardPath('claude/hooks/pr-merge-gate.js'));
+check('guard path: a workflow', g.isGuardPath('.github/workflows/ci.yml'));
+check('guard path: the gate template', g.isGuardPath('templates/adversarial-review-gate.md'));
+check('guard path: a probe under .claude/', g.isGuardPath('.claude/probes/run-all.js'));
+check('guard path: a test file anywhere', g.isGuardPath('scripts/foo.test.sh'));
+check('guard path: a selftest file anywhere', g.isGuardPath('anything/deep/x.selftest.js'));
+check('guard path: backslash separators still match', g.isGuardPath('claude\\hooks\\guardrail.js'));
+
+// A guard-path list that matches everything blocks all work and gets
+// switched off (principle 2), so the near-misses matter as much as the hits.
+check('near-miss: the README is not a guard path', !g.isGuardPath('README.md'));
+check('near-miss: a skill file is not a guard path', !g.isGuardPath('claude/skills/overnight-review/SKILL.md'));
+check('near-miss: docs mentioning hooks are not', !g.isGuardPath('docs/claude/hooks-overview.md'));
+check('near-miss: another template is not', !g.isGuardPath('templates/CLAUDE.md'));
+check('near-miss: "latest.js" is not a test file', !g.isGuardPath('src/latest.js'));
+check('near-miss: an empty path is not', !g.isGuardPath(''));
+
+// The wiring gradient, closed by review round 1: an edit that disarms the
+// gate must not meet less resistance than an edit to the gate itself.
+check('guard path: the wiring file claude/settings.json', g.isGuardPath('claude/settings.json'));
+check('guard path: the machine-global installer', g.isGuardPath('scripts/install-global-hooks.ps1'));
+check('guard path: a .spec file', g.isGuardPath('web/app.spec.ts'));
+check('guard path: a _test suffix', g.isGuardPath('lib/sync_test.dart'));
+check('guard path: a python test_ file', g.isGuardPath('tests/test_gate.py'));
+check('near-miss: settings.local.json is not', !g.isGuardPath('claude/settings.local.json'));
+check('near-miss: "protest.sh" is not a test file', !g.isGuardPath('scripts/protest.sh'));
+check('near-miss: "contest.js" is not', !g.isGuardPath('src/contest.js'));
+
+// Renames: GitHub reports only the NEW path, so a move out of a guard
+// directory is invisible by path alone; guardTouchedFiles counts every
+// rename wholesale.
+check('guard files: a rename counts even to a non-guard path',
+  g.guardTouchedFiles([{ path: 'scripts/gate.js', changeType: 'RENAMED' }]).length === 1);
+check('guard files: the rename label names the path',
+  g.guardTouchedFiles([{ path: 'scripts/gate.js', changeType: 'RENAMED' }])[0] === 'scripts/gate.js (renamed)');
+check('guard files: an ordinary non-guard change does not count',
+  g.guardTouchedFiles([{ path: 'src/app.js', changeType: 'MODIFIED' }]).length === 0);
+check('guard files: a guard path and a rename together yield both',
+  g.guardTouchedFiles([
+    { path: 'claude/hooks/x.js', changeType: 'MODIFIED' },
+    { path: 'docs/y.md', changeType: 'RENAMED' },
+  ]).length === 2);
+check('guard files: null and sparse input are safe',
+  g.guardTouchedFiles(null).length === 0 && g.guardTouchedFiles([null]).length === 0);
+
+check(
+  'review line: bold form is recognised',
+  g.hasGuardPathReview('## Gate: arming `abc123`\n**Guard-path review:** a different-substrate reviewer, no weakenings found')
+);
+check(
+  'review line: plain form is recognised',
+  g.hasGuardPathReview('## Gate: arming\nGuard-path review: a different-substrate reviewer')
+);
+check(
+  'review line: an arm without one is not',
+  !g.hasGuardPathReview('## Gate: arming `abc123`\nDisposition: arm')
+);
+check(
+  'review line: an empty value does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:**')
+);
+check(
+  'review line: a prose mention mid-line does not count',
+  !g.hasGuardPathReview('## Gate: arming\nWe should add a guard-path review next time.')
+);
+check('review line: a non-string body is not', !g.hasGuardPathReview(null));
+
+// Forms the template itself renders, accepted since review round 1: a
+// guard that denies correct work gets switched off (principle 2).
+check(
+  'review line: the template bullet form is recognised',
+  g.hasGuardPathReview('## Gate: arming\n- **Guard-path review:** a different-substrate reviewer, no weakenings')
+);
+check(
+  'review line: a numbered form is recognised',
+  g.hasGuardPathReview('## Gate: arming\n1. **Guard-path review:** reviewer named')
+);
+check(
+  'review line: the colon outside the bold is recognised',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review**: reviewer named')
+);
+check(
+  'review line: a blockquoted form is recognised',
+  g.hasGuardPathReview('## Gate: arming\n> **Guard-path review:** reviewer named')
+);
+
+// Placeholder values state that no review happened; they do not count.
+check(
+  'review line: value "none" does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** none')
+);
+check(
+  'review line: value "skipped" does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** skipped this time')
+);
+check(
+  'review line: value "TBD" does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** TBD')
+);
+check(
+  'review line: a real value starting with "non" still counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** non-Claude reviewer via API')
+);
+
+// Round 2: the placeholders the stoplist missed, and the legitimate
+// phrasings it wrongly fought (the frozen protocol says "state that you
+// found none"; a guard must not reject the phrasing its protocol invites).
+check(
+  'review line: the template\'s own unfilled placeholder does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** <substrate>, <one-line verdict>')
+);
+check(
+  'review line: punctuation-only values do not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** --') &&
+    !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** ???')
+);
+check(
+  'review line: "n.a." does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** n.a.')
+);
+check(
+  'review line: "fill me in" does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** _fill me in_')
+);
+check(
+  'review line: a substrate plus "none found" verdict counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** Sonnet 5; none found')
+);
+check(
+  'review line: "None found." as the whole value counts (protocol-invited phrasing)',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** None found.')
+);
+check(
+  'review line: prose starting with "none of" counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** none of the checks weakened; reviewed by a second substrate')
+);
+check(
+  'review line: bare "x" does not count, "x-ray team" does',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** x') &&
+    g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** x-ray team, clean')
+);
+
+// Round 3: skip-words are judged on the leading clause only. A verdict
+// that MENTIONS deferral records a review; a leading clause that IS a
+// deferral does not. The whole-value scan rejected the phrasing this
+// kit's own residuals use.
+check(
+  'review line: a verdict mentioning a deferred residual counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** Sonnet 5; one residual deferred to the follow-up issue')
+);
+check(
+  'review line: a verdict mentioning skipped hypotheses counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** Opus; none found, no hypothesis skipped')
+);
+check(
+  'review line: a leading clause that IS a deferral does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** deferred to the follow-up issue')
+);
+check(
+  'review line: "skipped, no second substrate available" does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** skipped, no second substrate available')
+);
+check(
+  'review line: a bare marker in the leading clause does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** TBD, will do after merge')
+);
+
+// Round 3: the placeholder test rejects '<'-openings only; parentheses,
+// brackets, and markdown links are legitimate substrate spellings, and
+// letters in any script count as letters.
+check(
+  'review line: a markdown-link substrate counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** [Sonnet 5](https://example.com); none found')
+);
+check(
+  'review line: a parenthesised substrate counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** (Sonnet 5) none found')
+);
+check(
+  'review line: a non-Latin verdict counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** 混元; 未发现问题')
+);
+
+// Round 3: a degenerate file entry makes the list unreadable, never a
+// definite answer in either direction.
+check('resolve: an empty-path entry is unreadable',
+  g.resolveGuardTouched([{ path: '', changeType: 'RENAMED' }], 1) === null);
+check('resolve: a null entry is unreadable',
+  g.resolveGuardTouched([null], 1) === null);
+
+// Round 2: truncation demotes only a negative result.
+check('resolve: a visible guard file keeps its deny even when truncated',
+  Array.isArray(g.resolveGuardTouched([{ path: 'claude/hooks/x.js' }], 328)) &&
+    g.resolveGuardTouched([{ path: 'claude/hooks/x.js' }], 328).length === 1);
+check('resolve: an all-clear truncated list is unreadable, not clean',
+  g.resolveGuardTouched([{ path: 'docs/a.md' }], 328) === null);
+check('resolve: an all-clear complete list is a definite no',
+  Array.isArray(g.resolveGuardTouched([{ path: 'docs/a.md' }], 1)) &&
+    g.resolveGuardTouched([{ path: 'docs/a.md' }], 1).length === 0);
+check('resolve: a missing list is unreadable', g.resolveGuardTouched(undefined, 5) === null);
+check('resolve: a missing changedFiles count does not demote',
+  Array.isArray(g.resolveGuardTouched([{ path: 'docs/a.md' }], undefined)));
+
+check('guard path: the bootstrap script (round 2, same gradient as the installer)',
+  g.isGuardPath('scripts/bootstrap.ps1'));
+check('guard files: a rename with an empty path yields no label',
+  g.guardTouchedFiles([{ path: '', changeType: 'RENAMED' }]).length === 0);
 
 console.log(`\npassed ${passes}, failed ${failures}`);
 if (failures) process.exit(1);
