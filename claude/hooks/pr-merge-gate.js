@@ -153,11 +153,14 @@
 //      `templates/adversarial-review-gate.md` ("Guard-path review").
 //      The line is accepted in plain, bold, bulleted, numbered, or
 //      quoted form, with the colon inside or outside the bold. Values
-//      that record no review are rejected: unfilled placeholders (a
-//      value opening with '<', bare none/n-a/TBD/todo/pending,
-//      punctuation-only), and skip-statements. "Sonnet; none found"
-//      stays valid: "none found" is a finding, "skipped" is a
-//      confession.
+//      that record no review are rejected: '<'-opening template
+//      placeholders, values with no letter in any script, and a
+//      leading clause (before the first ';' or ',') that is a bare
+//      marker (none/n-a/TBD/todo/pending/x) or a skip-statement.
+//      "Sonnet; none found" stays valid: "none found" is a finding,
+//      "skipped" is a confession. Named residual: a confession carried
+//      only in trailing words passes; the line is a disclosure, not
+//      proof.
 //
 // State plainly what this measures and what it cannot. The hook checks
 // that the line EXISTS on a current arm. It cannot verify that the
@@ -294,16 +297,28 @@ const GUARD_PATH_RES = [
 const GUARD_REVIEW_VALUE_RE = /^Guard-path review:\s*(\S.*)$/i;
 
 // isPlaceholderReviewValue(v) -> true when the review line's value does
-// not record a review: template placeholders left unfilled, punctuation
-// stand-ins, bare "none"/"n/a"/"TBD" markers, and statements that the
-// review was skipped or deferred. A verdict like "Sonnet; none found"
-// stays valid: "none found" is a finding, "skipped" is a confession.
+// not record a review. '<'-opening values are unfilled template
+// placeholders (parentheses, brackets, and markdown links are
+// legitimate substrate spellings); a value with no letter in any
+// script is punctuation; and the LEADING CLAUSE (before the first ';'
+// or ',', where the substrate-first format names the reviewer) must
+// not be a bare marker or a skip-statement. "Sonnet 5; one residual
+// deferred to a follow-up" is a review whose verdict mentions
+// deferral; "deferred to a follow-up" alone is not a review. Round 3's
+// catch: the whole-value scan rejected exactly the phrasing this kit's
+// own residuals use. Named residual, the deliberate trade: a
+// confession carried only in trailing words ("pending a second
+// substrate") passes; the line is a disclosure, not proof, and
+// content-validating free text past this point buys false positives
+// principle 6 cannot sustain. "Sonnet; none found" stays valid: "none
+// found" is a finding, "skipped" is a confession.
 function isPlaceholderReviewValue(v) {
   const value = String(v).trim();
-  if (!/[a-z]/i.test(value)) return true;
-  if (/^[<([{]/.test(value)) return true;
-  if (/^(none|n\.?\/?a\.?|tbd|todo|pending|x)[.!]?$/i.test(value)) return true;
-  if (/\bskip(ped|s)?\b|\bdeferred\b|fill (me )?in/i.test(value)) return true;
+  if (!/\p{L}/u.test(value)) return true;
+  if (/^</.test(value)) return true;
+  const lead = value.split(/[;,]/, 1)[0].trim();
+  if (/^(none|n\.?\/?a\.?|tbd|todo|pending|x)[.!]?$/i.test(lead)) return true;
+  if (/\bskip(ped|s)?\b|\bdeferred\b|fill (me )?in/i.test(lead)) return true;
   return false;
 }
 
@@ -389,6 +404,13 @@ function hasGuardPathReview(body) {
 // guard-path review caught the first cut discarding that evidence.
 function resolveGuardTouched(files, changedFiles) {
   if (!Array.isArray(files)) return null;
+  // An entry without a usable path makes the whole list unreliable, so
+  // it reads as unreadable (fail open with the warning), never as
+  // evidence of anything. Round 3: an empty-path rename had drifted
+  // from fail-closed to a definite "not touched".
+  for (const f of files) {
+    if (!f || typeof f.path !== 'string' || !f.path) return null;
+  }
   const visible = guardTouchedFiles(files);
   if (visible.length) return visible;
   const truncated = Number.isFinite(changedFiles) && changedFiles > files.length;
@@ -744,7 +766,7 @@ function main() {
     }
     deny(
       `${reason} Get an independent review on a different model substrate and re-post the arm with a ` +
-      `"**Guard-path review:** <substrate>" line (templates/adversarial-review-gate.md, "Guard-path review"). Deliberate override: ${OVERRIDE_HELP}`
+      `"Guard-path review:" line naming the reviewing substrate and its verdict (templates/adversarial-review-gate.md, "Guard-path review"). Deliberate override: ${OVERRIDE_HELP}`
     );
   }
 

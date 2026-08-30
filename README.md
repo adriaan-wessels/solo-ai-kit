@@ -302,10 +302,10 @@ not looking. The mechanism is a small stack of guardrails:
   enforces the gate's hardest rule: `claude/hooks/pr-merge-gate.js`
   refuses an explicit `gh pr merge` when the PR's newest gate comment is
   not a clean, current arm. A PR that edits the verification machinery
-  itself (hooks, workflows, settings, the gate template, tests) is held
-  to one line more: its arm must record an independent review on a
-  different model substrate (the template's "Guard-path review"
-  section). It is the kit's first shipped instance of
+  itself (hooks, their settings wiring, the install and bootstrap
+  scripts, workflows, the gate template, tests) is held to one line
+  more: its arm must record an independent review on a different model
+  substrate (the template's "Guard-path review" section). It is the kit's first shipped instance of
   principle 1, and it protects only half the surface. A standing
   `--auto` merge fires on GitHub's servers where no hook can object.
   The hook's own header and the template state that limit.

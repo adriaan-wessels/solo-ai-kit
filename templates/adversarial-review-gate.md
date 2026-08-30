@@ -105,11 +105,14 @@ one extra requirement applies on top of the disposition rules above.
   example `Sonnet 5; none found`. The `pr-merge-gate.js` hook denies
   an explicit merge of a guard-path PR whose arm lacks this line, and
   it does not fail open for a guard-path PR with no gate round at all.
-  It also rejects values that record no review: unfilled placeholders
-  (a value opening with `<`, bare none/n-a/TBD, punctuation only) and
-  skip-statements ("skipped", "deferred"). "None found" after a
-  substrate is a finding and passes; "skipped" is a confession and
-  does not.
+  It also rejects values that record no review: `<`-opening unfilled
+  placeholders, values with no letter in any script, and a leading
+  clause (before the first `;` or `,`) that is a bare marker
+  (none/n-a/TBD/todo/pending/x) or a skip-statement ("skipped",
+  "deferred"). "None found" after a substrate is a finding and passes;
+  "skipped" is a confession and does not. Named residual: a confession
+  carried only in trailing words passes. The line is a disclosure, not
+  proof, and the hook does not judge free text past this point.
 - **What the line proves.** Nothing, by itself: it is a disclosure,
   not proof, and the hook cannot check that the named substrate really
   ran. What the mechanism buys is that skipping the review becomes a

@@ -39,9 +39,9 @@
 // node -r preload replacing child_process.execFileSync) and drove main()
 // offline. An earlier revision of this header claimed offline coverage was
 // impossible; that claim was refuted live, twice. The committed version of
-// that harness is tracked on the #59 follow-up issue. Until it lands, treat
-// a green run here as "the classifiers are right", never as "the hook is
-// right".
+// that harness is a named follow-up of the #59 review round; #59 is the
+// decision-of-record for it. Until it lands, treat a green run here as
+// "the classifiers are right", never as "the hook is right".
 
 const fs = require('fs');
 const os = require('os');
@@ -106,7 +106,7 @@ if (process.argv.includes('--prove')) {
     ],
     [
       'skip-statements start counting as reviews',
-      String.raw`  if (/\bskip(ped|s)?\b|\bdeferred\b|fill (me )?in/i.test(value)) return true;`,
+      String.raw`  if (/\bskip(ped|s)?\b|\bdeferred\b|fill (me )?in/i.test(lead)) return true;`,
       String.raw`  if (false) return true;`,
     ],
     [
@@ -475,6 +475,54 @@ check(
   !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** x') &&
     g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** x-ray team, clean')
 );
+
+// Round 3: skip-words are judged on the leading clause only. A verdict
+// that MENTIONS deferral records a review; a leading clause that IS a
+// deferral does not. The whole-value scan rejected the phrasing this
+// kit's own residuals use.
+check(
+  'review line: a verdict mentioning a deferred residual counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** Sonnet 5; one residual deferred to the follow-up issue')
+);
+check(
+  'review line: a verdict mentioning skipped hypotheses counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** Opus; none found, no hypothesis skipped')
+);
+check(
+  'review line: a leading clause that IS a deferral does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** deferred to the follow-up issue')
+);
+check(
+  'review line: "skipped, no second substrate available" does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** skipped, no second substrate available')
+);
+check(
+  'review line: a bare marker in the leading clause does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** TBD, will do after merge')
+);
+
+// Round 3: the placeholder test rejects '<'-openings only; parentheses,
+// brackets, and markdown links are legitimate substrate spellings, and
+// letters in any script count as letters.
+check(
+  'review line: a markdown-link substrate counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** [Sonnet 5](https://example.com); none found')
+);
+check(
+  'review line: a parenthesised substrate counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** (Sonnet 5) none found')
+);
+check(
+  'review line: a non-Latin verdict counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** 混元; 未发现问题')
+);
+
+// Round 3: a degenerate file entry makes the list unreadable, never a
+// definite answer in either direction.
+check('resolve: an empty-path entry is unreadable',
+  g.resolveGuardTouched([{ path: '', changeType: 'RENAMED' }], 1) === null);
+check('resolve: a null entry is unreadable',
+  g.resolveGuardTouched([null], 1) === null);
 
 // Round 2: truncation demotes only a negative result.
 check('resolve: a visible guard file keeps its deny even when truncated',
