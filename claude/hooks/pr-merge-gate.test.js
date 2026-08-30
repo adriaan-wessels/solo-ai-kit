@@ -34,10 +34,14 @@
 // EXPORTED classifiers. They do not run `main()`, so they cannot catch a
 // regression in how main() wires those classifiers together. Measured, not
 // assumed: replacing `maskQuoted(cmd)` with `cmd` inside main() leaves every
-// case below passing. Covering that needs the hook run as a subprocess
-// against a real PR, which is not something CI can do offline. Until then,
-// treat a green run here as "the classifiers are right", never as "the hook
-// is right".
+// case below passing. Covering that does NOT need a real PR: two review
+// rounds on #61 each built a subprocess harness with a stubbed gh (a
+// node -r preload replacing child_process.execFileSync) and drove main()
+// offline. An earlier revision of this header claimed offline coverage was
+// impossible; that claim was refuted live, twice. The committed version of
+// that harness is tracked on the #59 follow-up issue. Until it lands, treat
+// a green run here as "the classifiers are right", never as "the hook is
+// right".
 
 const fs = require('fs');
 const os = require('os');
@@ -101,9 +105,9 @@ if (process.argv.includes('--prove')) {
       String.raw`const GUARD_REVIEW_VALUE_RE = /^(.*)$/i;`,
     ],
     [
-      'placeholder review values (none, skipped) start counting as reviews',
-      String.raw`const GUARD_REVIEW_STOPLIST_RE = /^(none|skipped|n\/a|na|tbd|todo|pending)\b/i;`,
-      String.raw`const GUARD_REVIEW_STOPLIST_RE = /^NEVERMATCHTHIS\b/i;`,
+      'skip-statements start counting as reviews',
+      String.raw`  if (/\bskip(ped|s)?\b|\bdeferred\b|fill (me )?in/i.test(value)) return true;`,
+      String.raw`  if (false) return true;`,
     ],
     [
       'the wiring file stops counting: disarming the gate via settings goes unwatched',
@@ -114,6 +118,16 @@ if (process.argv.includes('--prove')) {
       'renames stop counting: a move out of a guard directory goes unwatched',
       String.raw`.toUpperCase() === 'RENAMED'`,
       String.raw`.toUpperCase() === 'NEVERRENAMED'`,
+    ],
+    [
+      'truncation stops demoting: a guard file past the 100-file cap reads as not touched',
+      String.raw`  const truncated = Number.isFinite(changedFiles) && changedFiles > files.length;`,
+      String.raw`  const truncated = false;`,
+    ],
+    [
+      'truncation demotes positive evidence: a visible guard file loses its deny on big PRs',
+      String.raw`  if (visible.length) return visible;`,
+      String.raw`  if (false) return visible;`,
     ],
   ];
 
@@ -423,6 +437,62 @@ check(
   'review line: a real value starting with "non" still counts',
   g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** non-Claude reviewer via API')
 );
+
+// Round 2: the placeholders the stoplist missed, and the legitimate
+// phrasings it wrongly fought (the frozen protocol says "state that you
+// found none"; a guard must not reject the phrasing its protocol invites).
+check(
+  'review line: the template\'s own unfilled placeholder does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** <substrate>, <one-line verdict>')
+);
+check(
+  'review line: punctuation-only values do not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** --') &&
+    !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** ???')
+);
+check(
+  'review line: "n.a." does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** n.a.')
+);
+check(
+  'review line: "fill me in" does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** _fill me in_')
+);
+check(
+  'review line: a substrate plus "none found" verdict counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** Sonnet 5; none found')
+);
+check(
+  'review line: "None found." as the whole value counts (protocol-invited phrasing)',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** None found.')
+);
+check(
+  'review line: prose starting with "none of" counts',
+  g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** none of the checks weakened; reviewed by a second substrate')
+);
+check(
+  'review line: bare "x" does not count, "x-ray team" does',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** x') &&
+    g.hasGuardPathReview('## Gate: arming\n**Guard-path review:** x-ray team, clean')
+);
+
+// Round 2: truncation demotes only a negative result.
+check('resolve: a visible guard file keeps its deny even when truncated',
+  Array.isArray(g.resolveGuardTouched([{ path: 'claude/hooks/x.js' }], 328)) &&
+    g.resolveGuardTouched([{ path: 'claude/hooks/x.js' }], 328).length === 1);
+check('resolve: an all-clear truncated list is unreadable, not clean',
+  g.resolveGuardTouched([{ path: 'docs/a.md' }], 328) === null);
+check('resolve: an all-clear complete list is a definite no',
+  Array.isArray(g.resolveGuardTouched([{ path: 'docs/a.md' }], 1)) &&
+    g.resolveGuardTouched([{ path: 'docs/a.md' }], 1).length === 0);
+check('resolve: a missing list is unreadable', g.resolveGuardTouched(undefined, 5) === null);
+check('resolve: a missing changedFiles count does not demote',
+  Array.isArray(g.resolveGuardTouched([{ path: 'docs/a.md' }], undefined)));
+
+check('guard path: the bootstrap script (round 2, same gradient as the installer)',
+  g.isGuardPath('scripts/bootstrap.ps1'));
+check('guard files: a rename with an empty path yields no label',
+  g.guardTouchedFiles([{ path: '', changeType: 'RENAMED' }]).length === 0);
 
 console.log(`\npassed ${passes}, failed ${failures}`);
 if (failures) process.exit(1);

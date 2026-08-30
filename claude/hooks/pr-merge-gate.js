@@ -129,8 +129,9 @@
 // ----------------------------------------------------------------------
 //
 // A PR that changes the verification machinery is approved by that same
-// machinery: hook sources, workflows, the gate template, probes, and
-// test files all live in the repo, and agent review of such a diff is
+// machinery: hook sources, their settings wiring, the install and
+// bootstrap scripts, workflows, the gate template, probes, and test
+// files all live in the repo, and agent review of such a diff is
 // self-review moved one level up. Nobody human reads diffs in this
 // operating model, so the tracker issue "A diff that changes the
 // verification machinery is approved by the machinery it changes" asked
@@ -151,9 +152,12 @@
 //      authoring agents, run to the frozen protocol in
 //      `templates/adversarial-review-gate.md` ("Guard-path review").
 //      The line is accepted in plain, bold, bulleted, numbered, or
-//      quoted form, with the colon inside or outside the bold.
-//      Placeholder values (none, skipped, n/a, TBD, todo, pending) are
-//      rejected: they state that no review happened.
+//      quoted form, with the colon inside or outside the bold. Values
+//      that record no review are rejected: unfilled placeholders (a
+//      value opening with '<', bare none/n-a/TBD/todo/pending,
+//      punctuation-only), and skip-statements. "Sonnet; none found"
+//      stays valid: "none found" is a finding, "skipped" is a
+//      confession.
 //
 // State plainly what this measures and what it cannot. The hook checks
 // that the line EXISTS on a current arm. It cannot verify that the
@@ -170,7 +174,10 @@
 // 100-file cap of `--json files`, cli/cli#5368) is demoted to
 // unreadable by comparing `changedFiles` against the list length, so a
 // guard file hiding past the cap reads as "could not check", never as
-// "not touched".
+// "not touched". The demotion applies only to a NEGATIVE result: a
+// guard file gh did report is positive evidence and keeps its deny
+// even when the list is incomplete. Round 2 of the review caught the
+// first cut of this fix discarding exactly that evidence.
 //
 // The known limit is the hook's own: this protects explicit merge
 // commands only. The server-side half (auto-merge firing on a later
@@ -271,6 +278,7 @@ const GUARD_PATH_RES = [
   /^claude\/hooks\//i,
   /^claude\/settings\.json$/i,
   /^scripts\/install-global-hooks\.ps1$/i,
+  /^scripts\/bootstrap\.ps1$/i,
   /^\.github\//i,
   /^templates\/adversarial-review-gate\.md$/i,
   /^\.claude\//i,
@@ -284,7 +292,20 @@ const GUARD_PATH_RES = [
 // outside the bold. Placeholder values that state no review happened
 // are rejected: the line records a review, and "none" is not one.
 const GUARD_REVIEW_VALUE_RE = /^Guard-path review:\s*(\S.*)$/i;
-const GUARD_REVIEW_STOPLIST_RE = /^(none|skipped|n\/a|na|tbd|todo|pending)\b/i;
+
+// isPlaceholderReviewValue(v) -> true when the review line's value does
+// not record a review: template placeholders left unfilled, punctuation
+// stand-ins, bare "none"/"n/a"/"TBD" markers, and statements that the
+// review was skipped or deferred. A verdict like "Sonnet; none found"
+// stays valid: "none found" is a finding, "skipped" is a confession.
+function isPlaceholderReviewValue(v) {
+  const value = String(v).trim();
+  if (!/[a-z]/i.test(value)) return true;
+  if (/^[<([{]/.test(value)) return true;
+  if (/^(none|n\.?\/?a\.?|tbd|todo|pending|x)[.!]?$/i.test(value)) return true;
+  if (/\bskip(ped|s)?\b|\bdeferred\b|fill (me )?in/i.test(value)) return true;
+  return false;
+}
 
 const BOUNDARY = '(?:^|[;&|\\r\\n])\\s*';
 const GH_MERGE_RE = new RegExp(BOUNDARY + '(gh\\s+pr\\s+merge\\b)', 'i');
@@ -339,7 +360,7 @@ function guardTouchedFiles(files) {
     if (!f) continue;
     const p = String(f.path || '');
     if (isGuardPath(p)) out.push(p);
-    else if (String(f.changeType || '').toUpperCase() === 'RENAMED') out.push(`${p} (renamed)`);
+    else if (p && String(f.changeType || '').toUpperCase() === 'RENAMED') out.push(`${p} (renamed)`);
   }
   return out;
 }
@@ -356,8 +377,22 @@ function hasGuardPathReview(body) {
       .replace(/\*/g, '')
       .trim();
     const m = norm.match(GUARD_REVIEW_VALUE_RE);
-    return !!m && !GUARD_REVIEW_STOPLIST_RE.test(m[1]);
+    return !!m && !isPlaceholderReviewValue(m[1]);
   });
+}
+
+// resolveGuardTouched(files, changedFiles) -> the guard labels for this
+// PR, [] for a definite "none touched", or null for "unreadable". The
+// 100-file truncation of `--json files` (cli/cli#5368) demotes only a
+// NEGATIVE result: a guard file gh did report is positive evidence and
+// keeps its deny even when the list is incomplete. Round 2 of the
+// guard-path review caught the first cut discarding that evidence.
+function resolveGuardTouched(files, changedFiles) {
+  if (!Array.isArray(files)) return null;
+  const visible = guardTouchedFiles(files);
+  if (visible.length) return visible;
+  const truncated = Number.isFinite(changedFiles) && changedFiles > files.length;
+  return truncated ? null : visible;
 }
 
 // findStaleness({heading, commits, armTs}) -> a stale commit object, or
@@ -427,7 +462,8 @@ module.exports = {
   SHA_CITE_RE,
   GUARD_PATH_RES,
   GUARD_REVIEW_VALUE_RE,
-  GUARD_REVIEW_STOPLIST_RE,
+  isPlaceholderReviewValue,
+  resolveGuardTouched,
   GH_MERGE_RE,
   SAFE_MERGE_RE,
   CHEAP_PREFILTER_RE,
@@ -613,20 +649,20 @@ function main() {
   const comments = Array.isArray(data.comments) ? data.comments : [];
   const commits = Array.isArray(data.commits) ? data.commits : [];
 
-  // Guard-path detection (see GUARD-PATH REVIEW in the header). A missing
-  // `files` array reads as unreadable (null) and fails open later; an
-  // empty list is a definite "no guard paths touched". So does a
-  // TRUNCATED list: `--json files` caps at 100 entries with no marker
-  // (cli/cli#5368), so `changedFiles` is fetched alongside and a
-  // mismatch demotes the list to unreadable instead of letting a guard
-  // file hide past the cap as a silent "not touched".
-  const filesTruncated =
-    Array.isArray(data.files) && Number.isFinite(data.changedFiles) && data.changedFiles > data.files.length;
-  const files = Array.isArray(data.files) && !filesTruncated ? data.files : null;
-  const guardTouched = files ? guardTouchedFiles(files) : null;
+  // Guard-path detection (see GUARD-PATH REVIEW in the header). null =
+  // unreadable, fails open later with a warning; [] = definite "no guard
+  // paths touched". Truncation and positive-evidence handling live in
+  // resolveGuardTouched, where the suite can reach them.
+  const guardTouched = resolveGuardTouched(data.files, data.changedFiles);
   const guardList =
     guardTouched && guardTouched.length
       ? guardTouched.slice(0, 5).join(', ') + (guardTouched.length > 5 ? ` and ${guardTouched.length - 5} more` : '')
+      : '';
+  // A renamed docs file is not "machinery"; it is watched because GitHub
+  // hides its old path. Say so instead of asserting something untrue.
+  const renameNote =
+    guardTouched && guardTouched.some((l) => l.endsWith('(renamed)'))
+      ? ' Renamed files count because GitHub reports only their new path, so a move out of a guard directory is otherwise invisible.'
       : '';
 
   const gateComments = comments
@@ -635,7 +671,7 @@ function main() {
 
   if (!gateComments.length) {
     if (guardTouched && guardTouched.length) {
-      const reason = `PR #${prNumber} touches the verification machinery (${guardList}) and has no "## ...gate..." comment at all. Guard-path PRs do not fail open.`;
+      const reason = `PR #${prNumber} touches the verification machinery (${guardList}) and has no "## ...gate..." comment at all. Guard-path PRs do not fail open.${renameNote}`;
       log('blocked', `#${prNumber}`, 'guard-path: no gate round');
       if (override) {
         log('override', `#${prNumber}`, `guard-path-no-round; command="${cmd}"`);
@@ -666,7 +702,7 @@ function main() {
 
   if (disposition === 'UNKNOWN') {
     if (guardTouched && guardTouched.length) {
-      const reason = `PR #${prNumber} touches the verification machinery (${guardList}), and its most recent gate comment (${last.createdAt}) has no recognizable ARM/BLOCK disposition: "${heading}". Guard-path PRs do not fail open.`;
+      const reason = `PR #${prNumber} touches the verification machinery (${guardList}), and its most recent gate comment (${last.createdAt}) has no recognizable ARM/BLOCK disposition: "${heading}". Guard-path PRs do not fail open.${renameNote}`;
       log('blocked', `#${prNumber}`, 'guard-path: unknown disposition');
       if (override) {
         log('override', `#${prNumber}`, `guard-path-unknown; command="${cmd}"`);
@@ -700,7 +736,7 @@ function main() {
   if (guardTouched && guardTouched.length && !hasGuardPathReview(last.body)) {
     const reason =
       `PR #${prNumber} touches the verification machinery (${guardList}), and its arming gate comment (${last.createdAt}) ` +
-      `records no guard-path review. This diff is reviewed by the machinery it changes, so the arm alone is self-review.`;
+      `records no guard-path review. This diff is reviewed by the machinery it changes, so the arm alone is self-review.${renameNote}`;
     log('blocked', `#${prNumber}`, 'guard-path: no review line');
     if (override) {
       log('override', `#${prNumber}`, `guard-path-no-review; command="${cmd}"`);
