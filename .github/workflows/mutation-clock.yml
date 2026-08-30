@@ -70,7 +70,7 @@ jobs:
           set -eu
           title="Mutation clock is red"
           body="Scheduled run failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} . Owner: the next agent session in this repo. Remedy: run a blind campaign per the method in .github/mutation-ledger.md and append its dated entry, or fix the reported ledger error."
-          n=$(gh issue list --state open --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+          n=$(gh issue list --state open --search "in:title \"$title\"" --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
           if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
 
       # The recovery half of the tripwire: when the clock is green again,
@@ -79,8 +79,11 @@ jobs:
       # continue-on-error: a gh hiccup here must not turn a green clock
       # run red, especially since the issue-filing step above was already
       # skipped on the success path and would leave that red untracked.
-      # Exact title equality, not search: a person's issue titled
-      # "Mutation clock is red - awk missing" must not be auto-closed.
+      # The lookup narrows server-side with --search (gh issue list
+      # silently caps at 30 rows, so a client-side filter alone goes
+      # blind once the repo has 30 newer open issues) and then requires
+      # exact title equality, so a person's issue titled "Mutation clock
+      # is red - awk missing" is never auto-closed.
       - name: Close the red-clock issue when green again
         if: success()
         continue-on-error: true
@@ -90,7 +93,7 @@ jobs:
         run: |
           set -eu
           title="Mutation clock is red"
-          n=$(gh issue list --state open --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+          n=$(gh issue list --state open --search "in:title \"$title\"" --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
           if [ -n "$n" ]; then
             gh issue close "$n" --comment "Green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
