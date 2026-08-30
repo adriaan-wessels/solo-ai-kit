@@ -1139,3 +1139,11 @@ touching anything.
 Treat `claude-state` as private. Do not publish it the way you would
 publish a kit repo built from this one. It is a personal, operational
 backup, not a deliverable.
+
+---
+
+## About the founder-editor
+
+The founder behind this kit is Adriaan Wessels. His consulting practice,
+[Khenti](https://khenti.com), provides operations leadership for deep-tech
+ventures.
