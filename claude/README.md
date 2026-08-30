@@ -198,6 +198,22 @@ duplicates.
   actual review lenses, the tech stack) is marked `<PLACEHOLDER: ...>`. Fill
   those in for the new project before relying on it; the surrounding
   structure is the part that transfers as-is.
+- **`skills/end-session/SKILL.md`**: the close-out ritual for ending a
+  session. Audits the session for material work not yet recorded anywhere
+  durable ("for every material thing: where does it live now?"),
+  reconciles the board and memory, verifies repo/CI/scratchpad hygiene
+  with live checks, and closes with a report where every row cites its
+  evidence; a handover file is written only when in-flight residue has no
+  durable home. Carries the two lines from issue #54 that the phases
+  audit against: *done means nothing this session learned is lost*, and
+  *the check is complete when the only remaining items are artifacts of
+  the check*. Invoked when the user asks, never wired to fire on its own:
+  the close question works because it comes from outside the agent, and a
+  self-triggered version is a self-report that goes green against the bug
+  (the skill's "Why this is an invoked skill" section holds the decision
+  of record). Unlike overnight-review it has no `<PLACEHOLDER: ...>`
+  marks; project specifics defer to the project's own CLAUDE.md at the
+  point of use.
 - **`workflows/issue-triage-to-milestones.js`**: the "AI-native planning"
   ceremony (practice 6). A three-phase agent workflow (gather every open
   issue → fan out a panel of lens reviewers over the whole set → synthesize
