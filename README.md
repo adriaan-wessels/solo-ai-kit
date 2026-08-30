@@ -100,9 +100,9 @@ was rewritten under this directive, as the worked example.
 
 ---
 
-## Six principles behind the practices
+## Seven principles behind the practices
 
-These six ideas sit under most of what follows. State them once, and the
+These seven ideas sit under most of what follows. State them once, and the
 practices below read as instances of a rule instead of an arbitrary list.
 
 1. **A lesson that recurs is a missing mechanism, not a missing
@@ -148,6 +148,27 @@ practices below read as instances of a rule instead of an arbitrary list.
    make a check harder, engineer its noise out first. The lesson that
    earned it: a non-blocking check without mandatory consumption decays
    to noise, and a novel failure can hide inside a known red.
+7. **Self-verification ends in disclosure, not proof.** A verifier that
+   must run the code it judges takes its evidence from that code's
+   behaviour, so the verdict can be corrupted by the thing under
+   judgement. No malice is needed: an unlucky defect can skew the
+   evidence in its own favour, and an agent rewarded for green drifts
+   toward whatever produces green. The verifier cannot see intent, so
+   never build a control whose correctness depends on telling a
+   motivated error from a deliberate one; treat every claim from the
+   judged side as a hypothesis. Hardening is the transfer of control
+   over the evidence from the judged code to the reviewer: the
+   reviewer's own inputs, own instruments, own measurement points. The
+   transfer completes only for evidence that never runs the code, which
+   is the diff; in a solo operating model every reader of it is an
+   agent, and the founder reads measurements and behaviour, never code.
+   What stands beyond the agents' reach is therefore not a reader but
+   the credential boundary: controls enforced where the agents'
+   credentials cannot rewrite them. Expect each repair to relocate the
+   weakness rather than remove it; the correct end state is a named
+   residual plus the guard that actually holds there. An honestly
+   stated limit costs a sentence; a claimed completeness is a defect
+   awaiting its ten-line counterexample.
 
 ---
 
@@ -703,7 +724,7 @@ project.
 
 | Layer | Verdict | What it takes |
 |---|---|---|
-| The six principles | **Portable** | No tool appears in any of them. |
+| The seven principles | **Portable** | No tool appears in any of them. |
 | 1. One source of truth, agent-maintained | **Adapt** | Any tracker with an API serves. The board is not the point; one truthful source is. |
 | 2. `CLAUDE.md` as operating manual | **Portable** | The argument transfers; the filename does not. `AGENTS.md` is the cross-vendor equivalent, read by 25+ tools. Claude Code reads only `CLAUDE.md`, so a repo using both puts `@AGENTS.md` on the first line of `CLAUDE.md` and adds anything Claude-specific below it. On Windows use that import, not a symlink. |
 | 3. Correction-capture memory loop | **Portable** | |
