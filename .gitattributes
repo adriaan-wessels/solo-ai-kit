@@ -1,3 +1,6 @@
 # Bash hooks must check out with LF: under core.autocrlf=true a fresh clone
 # otherwise gets CRLF scripts, and Git Bash fails on the \r characters.
 *.sh text eol=lf
+# The mutation ledger is parsed line-anchored by scripts/mutation-clock-check.sh;
+# a CRLF checkout would fail its date grep. Keep markdown at LF too.
+*.md text eol=lf

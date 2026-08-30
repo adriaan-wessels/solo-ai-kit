@@ -18,7 +18,9 @@
 # `[ -gt ]` under set -e as a green exit; a future-dated or
 # fenced-example date reset the clock; a dated entry with nothing
 # measured counted as a campaign; a sibling '## <date> notes' heading
-# could donate its Result line; and the 90-day budget could never fire
+# or a fenced Result inside the entry could donate evidence; a zero
+# budget slid through the integer guard; and the 90-day budget could
+# never fire
 # in a public repo GitHub had already gone quiet in (scheduled
 # workflows are disabled after 60 days without repository activity, so
 # the budget is now 45). Each of those is a loud red now, and the
@@ -68,21 +70,27 @@ jobs:
           set -eu
           title="Mutation clock is red"
           body="Scheduled run failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} . Owner: the next agent session in this repo. Remedy: run a blind campaign per the method in .github/mutation-ledger.md and append its dated entry, or fix the reported ledger error."
-          n=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          n=$(gh issue list --state open --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
           if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
 
       # The recovery half of the tripwire: when the clock is green again,
       # the standing red issue closes itself, so the tracker reflects the
       # current state instead of accumulating stale reds.
+      # continue-on-error: a gh hiccup here must not turn a green clock
+      # run red, especially since the issue-filing step above was already
+      # skipped on the success path and would leave that red untracked.
+      # Exact title equality, not search: a person's issue titled
+      # "Mutation clock is red - awk missing" must not be auto-closed.
       - name: Close the red-clock issue when green again
         if: success()
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -eu
           title="Mutation clock is red"
-          n=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          n=$(gh issue list --state open --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
           if [ -n "$n" ]; then
             gh issue close "$n" --comment "Green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi

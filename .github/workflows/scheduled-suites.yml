@@ -44,6 +44,7 @@ jobs:
           set -eu
           node claude/hooks/guardrail.test.js
           bash claude/hooks/subagent-stall-check.test.sh
+          bash scripts/mutation-clock-check.test.sh
           node claude/hooks/session-start.selftest.js
           node claude/hooks/pr-merge-gate.test.js
 
@@ -63,20 +64,23 @@ jobs:
           set -eu
           title="Scheduled suites are red"
           body="Scheduled run failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} . Environment rot or a suite regression on the default branch; triage before trusting any green."
-          n=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          n=$(gh issue list --state open --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
           if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
 
       # The recovery half of the tripwire: a red that has healed closes
       # its own tracker issue, so stale reds cannot pile up unowned.
+      # continue-on-error and exact title equality, for the same reasons
+      # as the clock workflow's close step.
       - name: Close the red-suites issue when green again
         if: success()
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -eu
           title="Scheduled suites are red"
-          n=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          n=$(gh issue list --state open --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
           if [ -n "$n" ]; then
             gh issue close "$n" --comment "Green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
