@@ -1,3 +1,8 @@
 # Bash hooks must check out with LF: under core.autocrlf=true a fresh clone
 # otherwise gets CRLF scripts, and Git Bash fails on the \r characters.
 *.sh text eol=lf
+# The mutation ledger is parsed line-anchored by scripts/mutation-clock-check.sh.
+# Git Bash and ubuntu-latest tolerate CRLF there (their awk/grep drop the CR),
+# so this is belt-and-braces for the one setup that would not: a Linux
+# toolchain reading a CRLF working tree (WSL, container bind mounts).
+*.md text eol=lf

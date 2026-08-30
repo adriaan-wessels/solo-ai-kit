@@ -1,0 +1,99 @@
+# The mutation clock: the blind-run cadence, made mandatory.
+#
+# The one-off blind mutation run (PR #55) measured the test layer from
+# outside: agents that wrote neither the hooks nor the suites proposed
+# injections, and the 15 uncaught ones became assertions. That
+# measurement decays as the hooks change under it. A note that says
+# "re-run it sometime" is the form with the proven failure record
+# (README, principle 1), so the cadence is enforced here instead.
+#
+# This workflow holds the CLOCK, not the campaign. A blind run needs
+# fresh reviewer agents and cannot happen inside CI. The ledger at
+# .github/mutation-ledger.md records each completed run; this job goes
+# red when the newest entry is older than the budget, and stays red
+# until a new campaign lands a new entry.
+#
+# Hardened by this PR's own review rounds, which found silent-green
+# routes in each earlier cut: a non-integer budget slid through
+# `[ -gt ]` under set -e as a green exit; a future-dated or
+# fenced-example date reset the clock; a dated entry with nothing
+# measured counted as a campaign; a sibling '## <date> notes' heading
+# or a fenced Result inside the entry could donate evidence; a zero
+# budget slid through the integer guard; and the 90-day budget could
+# never fire
+# in a public repo GitHub had already gone quiet in (scheduled
+# workflows are disabled after 60 days without repository activity, so
+# the budget is now 45). Each of those is a loud red now, and the
+# decision logic lives in scripts/mutation-clock-check.sh with its own
+# committed harness (scripts/mutation-clock-check.test.sh, run by
+# ci.yml), so the next regression fails a test instead of waiting for a
+# reviewer to hand-extract this step again. The named residual: a repo
+# dormant past 60 days stops running this clock entirely, and that is
+# not observable from inside the repo.
+#
+# On failure this workflow files (or refreshes) a tracker issue, so the
+# red lands where the agents actually look instead of relying on
+# anyone's notification settings. The suites re-run lives in its own
+# workflow (scheduled-suites.yml): this clock is DESIGNED to hold a
+# standing red until a campaign lands, and a novel suites failure must
+# never hide inside that known red (README, principle 6).
+
+name: Mutation clock
+
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  clock:
+    name: Blind-run ledger age
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Newest ledger entry is inside the budget
+        run: bash scripts/mutation-clock-check.sh .github/mutation-ledger.md 45
+
+      - name: File or refresh the red-clock issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          title="Mutation clock is red"
+          body="Scheduled run failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} . Owner: the next agent session in this repo. Remedy: run a blind campaign per the method in .github/mutation-ledger.md and append its dated entry, or fix the reported ledger error."
+          n=$(gh issue list --state open --search "in:title \"$title\"" --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
+
+      # The recovery half of the tripwire: when the clock is green again,
+      # the standing red issue closes itself, so the tracker reflects the
+      # current state instead of accumulating stale reds.
+      # continue-on-error: a gh hiccup here must not turn a green clock
+      # run red, especially since the issue-filing step above was already
+      # skipped on the success path and would leave that red untracked.
+      # The lookup narrows server-side with --search (gh issue list
+      # silently caps at 30 rows, so a client-side filter alone goes
+      # blind once the repo has 30 newer open issues) and then requires
+      # exact title equality, so a person's issue titled "Mutation clock
+      # is red - awk missing" is never auto-closed.
+      - name: Close the red-clock issue when green again
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          title="Mutation clock is red"
+          n=$(gh issue list --state open --search "in:title \"$title\"" --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+          if [ -n "$n" ]; then
+            gh issue close "$n" --comment "Green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi

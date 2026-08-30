@@ -7,7 +7,8 @@
 #   1. a syntax check over every script the kit ships, and
 #   2. the replay harnesses and selftests, which are the only real test
 #      suites here: guardrail.test.js, subagent-stall-check.test.sh,
-#      session-start.selftest.js and pr-merge-gate.test.js. Each JS suite
+#      session-start.selftest.js, pr-merge-gate.test.js and
+#      mutation-clock-check.test.sh. Each JS suite
 #      also runs a --prove pass, which reintroduces real defects and requires
 #      the suite to go red for each: a suite that cannot fail is not evidence.
 #
@@ -106,6 +107,12 @@ jobs:
 
       - name: Stall-check replay harness
         run: bash claude/hooks/subagent-stall-check.test.sh
+
+      # The mutation clock's decision logic (scripts/mutation-clock-check.sh)
+      # is verification machinery too. Its red cases are the controls: a
+      # clock that cannot go red is not a clock.
+      - name: Mutation-clock check harness
+        run: bash scripts/mutation-clock-check.test.sh
 
       - name: Session-start selftest
         run: node claude/hooks/session-start.selftest.js
