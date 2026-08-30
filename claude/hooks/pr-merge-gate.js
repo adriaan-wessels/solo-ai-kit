@@ -125,6 +125,48 @@
 // disclosed trade-off, not an oversight.
 //
 // ----------------------------------------------------------------------
+// GUARD-PATH REVIEW
+// ----------------------------------------------------------------------
+//
+// A PR that changes the verification machinery is approved by that same
+// machinery: hook sources, workflows, the gate template, probes, and
+// test files all live in the repo, and agent review of such a diff is
+// self-review moved one level up. Nobody human reads diffs in this
+// operating model, so the tracker issue "A diff that changes the
+// verification machinery is approved by the machinery it changes" asked
+// for a mechanical requirement instead. This is its hook-scoped half.
+//
+// When the PR's changed files touch a guard path (GUARD_PATH_RES), the
+// gate tightens in two ways:
+//
+//   1. The usual fail-opens become denies. No gate comment at all, or a
+//      heading with no recognizable disposition, blocks instead of
+//      warning. Guard paths change rarely and deliberately, so the
+//      false-positive cost of hard-blocking is one the precision can
+//      sustain (kit README, principle 6).
+//
+//   2. A clean, current ARM is not enough. The arming comment must also
+//      carry a `**Guard-path review:** <substrate>` line, recording an
+//      independent review on a model substrate different from the
+//      authoring agents, run to the frozen protocol in
+//      `templates/adversarial-review-gate.md` ("Guard-path review").
+//
+// State plainly what this measures and what it cannot. The hook checks
+// that the line EXISTS on a current arm. It cannot verify that the
+// named substrate really reviewed anything: that claim is judged-side
+// evidence, a disclosure and not a proof. What the mechanism buys is
+// that the disclosure must exist, be attached to the arm, and be
+// current, so skipping the review becomes a visible false statement in
+// the record rather than a silent omission.
+//
+// The known limit is the hook's own: this protects explicit merge
+// commands only. The server-side half (auto-merge firing on a later
+// green) is the ruleset-required status the tracker issue holds as its
+// blocked item. And if the changed-file list cannot be read at all,
+// this check fails open with a warning, like every other unreadable
+// input here.
+//
+// ----------------------------------------------------------------------
 // TRIGGER MATCHING
 // ----------------------------------------------------------------------
 //
@@ -202,6 +244,23 @@ const DISPOSITION_LINE_RE = /^\**Disposition:/i;
 const SYNC_COMMIT_RE = /^Merge (branch|remote-tracking branch|pull request)\b/i;
 const SHA_CITE_RE = /`([0-9a-f]{6,40})`/i;
 
+// Guard paths, exactly the tracker issue's list and no wider: hook
+// sources, workflows, the gate template, probes, and test/selftest
+// files anywhere. Paths come from `gh pr view --json files` and use
+// forward slashes; isGuardPath() normalizes backslashes anyway.
+const GUARD_PATH_RES = [
+  /^claude\/hooks\//i,
+  /^\.github\//i,
+  /^templates\/adversarial-review-gate\.md$/i,
+  /^\.claude\//i,
+  /\.(test|selftest)\.(js|sh|ps1)$/i,
+];
+// The value class excludes '*' as well as whitespace: without that, the
+// closing bold marker of an EMPTY `**Guard-path review:**` line
+// backtracks into the value position and an empty disclosure counts as
+// filled. Caught by the replay suite's empty-value case.
+const GUARD_REVIEW_LINE_RE = /^\**Guard-path review:\**\s*[^\s*]/i;
+
 const BOUNDARY = '(?:^|[;&|\\r\\n])\\s*';
 const GH_MERGE_RE = new RegExp(BOUNDARY + '(gh\\s+pr\\s+merge\\b)', 'i');
 const SAFE_MERGE_RE = new RegExp(BOUNDARY + '((?:bash\\s+|sh\\s+|\\.[\\\\/])?\\S*safe_merge\\.sh\\b)', 'i');
@@ -235,6 +294,21 @@ function classify(body) {
   if (BLOCK_RE.test(signal)) return 'BLOCKED';
   if (ARM_RE.test(signal)) return 'ARMED';
   return 'UNKNOWN';
+}
+
+// isGuardPath(path) -> does this changed file edit the verification
+// machinery. See the GUARD-PATH REVIEW section in the header.
+function isGuardPath(p) {
+  const norm = String(p || '').replace(/\\/g, '/');
+  return GUARD_PATH_RES.some((re) => re.test(norm));
+}
+
+// hasGuardPathReview(body) -> does this gate comment carry a
+// `Guard-path review: <substrate>` line with a non-empty value. The
+// line is a disclosure, not proof; the header states what that buys.
+function hasGuardPathReview(body) {
+  if (typeof body !== 'string') return false;
+  return bodyLines(body).some((l) => GUARD_REVIEW_LINE_RE.test(l));
 }
 
 // findStaleness({heading, commits, armTs}) -> a stale commit object, or
@@ -302,6 +376,8 @@ module.exports = {
   ARM_RE,
   SYNC_COMMIT_RE,
   SHA_CITE_RE,
+  GUARD_PATH_RES,
+  GUARD_REVIEW_LINE_RE,
   GH_MERGE_RE,
   SAFE_MERGE_RE,
   CHEAP_PREFILTER_RE,
@@ -309,6 +385,8 @@ module.exports = {
   PWSH_OVERRIDE_RE,
   isGateComment,
   classify,
+  isGuardPath,
+  hasGuardPathReview,
   findStaleness,
   maskQuoted,
   sliceToOperator,
@@ -468,7 +546,7 @@ function main() {
 
   let data;
   try {
-    data = JSON.parse(ghCall(['pr', 'view', prNumber, '--json', 'comments,commits,state,mergedAt']));
+    data = JSON.parse(ghCall(['pr', 'view', prNumber, '--json', 'comments,commits,state,mergedAt,files']));
   } catch {
     allow(
       `could not read PR #${prNumber} (gh failed or PR not found). Allowing; verify the gate round manually before merging.`
@@ -483,11 +561,32 @@ function main() {
   const comments = Array.isArray(data.comments) ? data.comments : [];
   const commits = Array.isArray(data.commits) ? data.commits : [];
 
+  // Guard-path detection (see GUARD-PATH REVIEW in the header). A missing
+  // `files` array reads as unreadable (null) and fails open later; an
+  // empty list is a definite "no guard paths touched".
+  const files = Array.isArray(data.files) ? data.files : null;
+  const guardTouched = files ? files.map((f) => f && f.path).filter(isGuardPath) : null;
+  const guardList =
+    guardTouched && guardTouched.length
+      ? guardTouched.slice(0, 5).join(', ') + (guardTouched.length > 5 ? ` and ${guardTouched.length - 5} more` : '')
+      : '';
+
   const gateComments = comments
     .filter((c) => isGateComment(c.body))
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 
   if (!gateComments.length) {
+    if (guardTouched && guardTouched.length) {
+      const reason = `PR #${prNumber} touches the verification machinery (${guardList}) and has no "## ...gate..." comment at all. Guard-path PRs do not fail open.`;
+      log('blocked', `#${prNumber}`, 'guard-path: no gate round');
+      if (override) {
+        log('override', `#${prNumber}`, `guard-path-no-round; command="${cmd}"`);
+        allow(`OVERRIDE used on PR #${prNumber}. ${reason} Logged to ${LOG}.`);
+      }
+      deny(
+        `${reason} Run a gate round with an independent guard-path review and post its arming comment first (templates/adversarial-review-gate.md, "Guard-path review"). Deliberate override: ${OVERRIDE_HELP}`
+      );
+    }
     allow(
       `PR #${prNumber} has no "## ...gate..." comment yet (the pre-merge review gate). Nothing to check against, so allowing. If this PR is meant to go through the pre-merge gate, get a round posted first.`
     );
@@ -508,6 +607,17 @@ function main() {
   }
 
   if (disposition === 'UNKNOWN') {
+    if (guardTouched && guardTouched.length) {
+      const reason = `PR #${prNumber} touches the verification machinery (${guardList}), and its most recent gate comment (${last.createdAt}) has no recognizable ARM/BLOCK disposition: "${heading}". Guard-path PRs do not fail open.`;
+      log('blocked', `#${prNumber}`, 'guard-path: unknown disposition');
+      if (override) {
+        log('override', `#${prNumber}`, `guard-path-unknown; command="${cmd}"`);
+        allow(`OVERRIDE used on PR #${prNumber}. ${reason} Logged to ${LOG}.`);
+      }
+      deny(
+        `${reason} Post a clean arming comment that carries a "Guard-path review:" line (templates/adversarial-review-gate.md, "Guard-path review"). Deliberate override: ${OVERRIDE_HELP}`
+      );
+    }
     allow(
       `PR #${prNumber}'s most recent gate comment (${last.createdAt}) has no recognizable ARM/BLOCK disposition: "${heading}". Allowing; verify manually.`
     );
@@ -529,9 +639,36 @@ function main() {
     deny(`${reason} Get a fresh gate comment confirming ARM for the current HEAD before merging. Deliberate override: ${OVERRIDE_HELP}`);
   }
 
+  if (guardTouched && guardTouched.length && !hasGuardPathReview(last.body)) {
+    const reason =
+      `PR #${prNumber} touches the verification machinery (${guardList}), and its arming gate comment (${last.createdAt}) ` +
+      `records no guard-path review. This diff is reviewed by the machinery it changes, so the arm alone is self-review.`;
+    log('blocked', `#${prNumber}`, 'guard-path: no review line');
+    if (override) {
+      log('override', `#${prNumber}`, `guard-path-no-review; command="${cmd}"`);
+      allow(`OVERRIDE used on PR #${prNumber}. ${reason} Logged to ${LOG}.`);
+    }
+    deny(
+      `${reason} Get an independent review on a different model substrate and re-post the arm with a ` +
+      `"**Guard-path review:** <substrate>" line (templates/adversarial-review-gate.md, "Guard-path review"). Deliberate override: ${OVERRIDE_HELP}`
+    );
+  }
+
+  if (guardTouched === null) {
+    allow(
+      `PR #${prNumber}: the changed-file list could not be read, so the guard-path review requirement was not checked. Verify manually if this PR touches hooks, workflows, the gate template, probes, or tests.`
+    );
+  }
+
   // Clean: most recent gate comment is an ARM disposition and nothing
   // unaccounted-for has landed since. Let it through, leaving the telemetry
   // row that makes a quiet gate distinguishable from a dead one.
-  log('clean', `#${prNumber}`, `clean current ARM verified ("${heading}")`);
+  log(
+    'clean',
+    `#${prNumber}`,
+    guardTouched && guardTouched.length
+      ? `clean current ARM with guard-path review verified ("${heading}")`
+      : `clean current ARM verified ("${heading}")`
+  );
   process.exit(0);
 }

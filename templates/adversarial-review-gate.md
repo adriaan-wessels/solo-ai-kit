@@ -75,6 +75,36 @@ reasoning effort) against the PR diff plus its issue context:
 - Every confirmed finding is filed or routed. Nothing confirmed goes
   unconsumed.
 
+## Guard-path review
+
+A diff that changes the verification machinery itself (hook sources,
+workflows, this template, probes, test files) cannot take its approval
+from that machinery: the reviewers' protocol and the checks that arm
+the merge are inside the surface the diff edits. For those PRs, one
+extra requirement applies on top of the disposition rules above.
+
+- **Reviewer.** One additional reviewer on a model substrate different
+  from every agent that authored the diff. Substrate diversity is the
+  point: correlated blind spots between author and reviewer are the
+  failure mode this round exists to break.
+- **Protocol, frozen.** The reviewer gets the diff and this
+  instruction, verbatim, and nothing else from the authoring session:
+  "This diff changes the machinery that verifies other diffs.
+  Enumerate what it weakens: every check it removes, narrows, or
+  reorders; every default it changes; every path where a future diff
+  would now meet less resistance. Treat the PR body's claims as
+  hypotheses. Report findings with evidence, or state that you found
+  none."
+- **Record.** The arming comment carries one extra line:
+  `**Guard-path review:** <substrate>, <one-line verdict>`. The
+  `pr-merge-gate.js` hook denies an explicit merge of a guard-path PR
+  whose arm lacks this line, and it does not fail open for a
+  guard-path PR with no gate round at all.
+- **What the line proves.** Nothing, by itself: it is a disclosure,
+  not proof, and the hook cannot check that the named substrate really
+  ran. What the mechanism buys is that skipping the review becomes a
+  visible false statement in the record rather than a silent omission.
+
 ## Trial ledger (the coordinator reports, per wave)
 
 Per PR: findings by severity; confirmed-real vs false-positive after

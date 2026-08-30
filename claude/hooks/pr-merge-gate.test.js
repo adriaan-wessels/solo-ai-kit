@@ -90,6 +90,16 @@ if (process.argv.includes('--prove')) {
       String.raw`const CHEAP_PREFILTER_RE = /gh\s+pr\s+merge|safe_merge\.sh/i;`,
       String.raw`const CHEAP_PREFILTER_RE = /gh\s+pr\s+merge/i;`,
     ],
+    [
+      'hook sources stop counting as guard paths: the machinery edits itself unwatched',
+      String.raw`  /^claude\/hooks\//i,`,
+      String.raw`  /^NEVERMATCHTHIS\//i,`,
+    ],
+    [
+      'the guard-path review line matches anything, so its absence never blocks',
+      String.raw`const GUARD_REVIEW_LINE_RE = /^\**Guard-path review:\**\s*[^\s*]/i;`,
+      String.raw`const GUARD_REVIEW_LINE_RE = /(?:)/;`,
+    ],
   ];
 
   const runAgainst = (hookPath) => {
@@ -288,6 +298,51 @@ for (const cmd of [
 ]) {
   check(`prefilter: does not drop ${JSON.stringify(cmd).slice(0, 40)}`, g.CHEAP_PREFILTER_RE.test(cmd));
 }
+
+// --- 7. Guard paths: the machinery may not approve its own edit -------------
+//
+// isGuardPath/hasGuardPathReview are the classifiers behind the guard-path
+// review requirement (hook header, GUARD-PATH REVIEW). Same scope caveat as
+// everything in this file: main()'s wiring of these is not covered here.
+
+check('guard path: a hook source', g.isGuardPath('claude/hooks/pr-merge-gate.js'));
+check('guard path: a workflow', g.isGuardPath('.github/workflows/ci.yml'));
+check('guard path: the gate template', g.isGuardPath('templates/adversarial-review-gate.md'));
+check('guard path: a probe under .claude/', g.isGuardPath('.claude/probes/run-all.js'));
+check('guard path: a test file anywhere', g.isGuardPath('scripts/foo.test.sh'));
+check('guard path: a selftest file anywhere', g.isGuardPath('anything/deep/x.selftest.js'));
+check('guard path: backslash separators still match', g.isGuardPath('claude\\hooks\\guardrail.js'));
+
+// A guard-path list that matches everything blocks all work and gets
+// switched off (principle 2), so the near-misses matter as much as the hits.
+check('near-miss: the README is not a guard path', !g.isGuardPath('README.md'));
+check('near-miss: a skill file is not a guard path', !g.isGuardPath('claude/skills/overnight-review/SKILL.md'));
+check('near-miss: docs mentioning hooks are not', !g.isGuardPath('docs/claude/hooks-overview.md'));
+check('near-miss: another template is not', !g.isGuardPath('templates/CLAUDE.md'));
+check('near-miss: "latest.js" is not a test file', !g.isGuardPath('src/latest.js'));
+check('near-miss: an empty path is not', !g.isGuardPath(''));
+
+check(
+  'review line: bold form is recognised',
+  g.hasGuardPathReview('## Gate: arming `abc123`\n**Guard-path review:** a different-substrate reviewer, no weakenings found')
+);
+check(
+  'review line: plain form is recognised',
+  g.hasGuardPathReview('## Gate: arming\nGuard-path review: a different-substrate reviewer')
+);
+check(
+  'review line: an arm without one is not',
+  !g.hasGuardPathReview('## Gate: arming `abc123`\nDisposition: arm')
+);
+check(
+  'review line: an empty value does not count',
+  !g.hasGuardPathReview('## Gate: arming\n**Guard-path review:**')
+);
+check(
+  'review line: a prose mention mid-line does not count',
+  !g.hasGuardPathReview('## Gate: arming\nWe should add a guard-path review next time.')
+);
+check('review line: a non-string body is not', !g.hasGuardPathReview(null));
 
 console.log(`\npassed ${passes}, failed ${failures}`);
 if (failures) process.exit(1);
