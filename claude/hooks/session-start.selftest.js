@@ -10,7 +10,7 @@
 // ADVERSARIAL NOTE (the source project recorded "green tests can encode the
 // bug" six times): every assertion below was verified to FAIL against a deliberately
 // broken note() before being kept. See the --prove flag, which reintroduces
-// twelve real defects and asserts the suite goes red for each. A selftest that
+// fourteen real defects and asserts the suite goes red for each. A selftest that
 // cannot fail is not evidence.
 
 const path = require('path');
@@ -75,6 +75,14 @@ if (process.argv.includes('--prove')) {
       "probe-timeout-env-override-removed",
       (s) => s.replace("const PROBE_TIMEOUT_MS = Number(process.env.CLAUDE_PROBE_TIMEOUT_MS) || 20000;", "const PROBE_TIMEOUT_MS = 20000;"),
     ],
+
+    // archiveSection defects: one in each direction. A tripwire that cannot
+    // fire loses data silently; one that fires on every machine gets skimmed
+    // (and then disabled) — both defeat it.
+    ['a stale archive is reported as healthy  (-> "a stale archive is called out")',
+      (s) => s.replace("if (stampAge <= ARCHIVE_STALE_MS) return '';", "return '';")],
+    ['an unadopted machine is nagged about the archive  (-> "a machine without the archiver stays silent")',
+      (s) => s.replace(/if \(!fs\.existsSync\(config\)\) return '';[^\n]*\n/, '')],
   ];
 
   let proven = 0;
@@ -103,7 +111,7 @@ if (process.argv.includes('--prove')) {
   process.exit(proven === defects.length ? 0 : 1);
 }
 
-const { note, probeSection } = require(SRC);
+const { note, probeSection, archiveSection } = require(SRC);
 
 let pass = 0;
 let fail = 0;
@@ -419,6 +427,51 @@ console.log('');
     !/Probes:/.test(runHook(noProbes, withProbes))
   );
 }
+
+// ---------------------------------------------------------------------------
+// archiveSection(): the transcript-archive staleness tripwire.
+//
+// Same contract shape as probes: a machine that never adopted the archiver
+// is silent; once adopted, nothing short of a fresh successful run may read
+// as healthy. Every case builds a real Claude-home directory on disk; stamp
+// age is set through the file's mtime, which is what the hook reads.
+
+function archiveFixture(opts) {
+  const dir = fsx.mkdtempSync(path.join(osx.tmpdir(), 'archive-fixture-'));
+  if (opts.config) {
+    fsx.writeFileSync(path.join(dir, 'transcript-archive-path.txt'), 'D:\\archive');
+  }
+  if (opts.stampAgeHours !== undefined) {
+    const stamp = path.join(dir, '.last-transcript-archive');
+    fsx.writeFileSync(stamp, 'stamp');
+    const t = new Date(Date.now() - opts.stampAgeHours * HOUR);
+    fsx.utimesSync(stamp, t, t);
+  }
+  return dir;
+}
+
+ok('a machine without the archiver stays silent', archiveSection(archiveFixture({})) === '');
+ok(
+  'configured but never run is reported',
+  /TRANSCRIPT ARCHIVE/.test(archiveSection(archiveFixture({ config: true })))
+);
+ok(
+  'a fresh stamp says nothing',
+  archiveSection(archiveFixture({ config: true, stampAgeHours: 1 })) === ''
+);
+ok(
+  'a stamp inside the 48h window is healthy',
+  archiveSection(archiveFixture({ config: true, stampAgeHours: 47 })) === ''
+);
+const staleArchive = archiveSection(archiveFixture({ config: true, stampAgeHours: 72 }));
+ok('a stale archive is called out', /TRANSCRIPT ARCHIVE STALE/.test(staleArchive));
+ok('a stale archive reports its age', /3d/.test(staleArchive));
+// Adoption is evidenced by the stamp, not the config: deleting the config
+// file after a scheduled task exists must not silence the warning.
+ok(
+  'a stale stamp warns even when the config file is gone',
+  /STALE/.test(archiveSection(archiveFixture({ stampAgeHours: 72 })))
+);
 
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
