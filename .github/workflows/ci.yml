@@ -118,7 +118,7 @@ jobs:
         run: node claude/hooks/session-start.selftest.js
 
       # The suite above is evidence only if it can fail. --prove reintroduces
-      # twelve real defects and requires the suite to go red for each one, so a
+      # fourteen real defects and requires the suite to go red for each one, so a
       # selftest that has quietly stopped asserting anything fails here
       # instead of passing green forever (README, principle 3).
       - name: Session-start selftest can fail

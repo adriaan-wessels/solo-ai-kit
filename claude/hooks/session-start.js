@@ -110,6 +110,53 @@ function note(p) {
 const PROBE_TIMEOUT_MS = Number(process.env.CLAUDE_PROBE_TIMEOUT_MS) || 20000;
 const PROBE_UNVERIFIED = 'Treat every behavioural note as unverified.';
 
+// The transcript archiver (scripts/archive-claude-transcripts.ps1) stamps
+// <claudeHome>/.last-transcript-archive on every SUCCESSFUL run. This section
+// reads that stamp and warns when the archive has gone quiet. The archiver
+// runs from a scheduled task, and a scheduled task that stopped firing looks
+// exactly like one that is fine unless something consumes its absence —
+// session start is the one place consumption is guaranteed. Like probes,
+// this runs OUTSIDE the brief's cache: a cached freshness check reports a
+// stale verdict as current, which is the failure it exists to catch.
+//
+// A machine that never adopted the archiver (no stamp, no config file) stays
+// silent — the warning is opt-in by configuring the archiver, not a nag on
+// every install of the kit. Once adopted, every failure mode is REPORTED:
+// configured-but-never-ran and stale must not read like healthy, for the
+// same reason "no probes here" and "the probes are broken" must not look
+// the same.
+const ARCHIVE_STALE_MS = 48 * 3.6e6;
+
+function archiveSection(claudeHome) {
+  const stamp = path.join(claudeHome, '.last-transcript-archive');
+  const config = path.join(claudeHome, 'transcript-archive-path.txt');
+
+  let stampAge = null;
+  try {
+    stampAge = Date.now() - fs.statSync(stamp).mtimeMs;
+  } catch {
+    stampAge = null; // no stamp on this machine (or it cannot be read)
+  }
+
+  if (stampAge === null) {
+    if (!fs.existsSync(config)) return ''; // archiver not adopted here
+    return (
+      'TRANSCRIPT ARCHIVE: configured but no successful run is on record. ' +
+      'Run scripts/archive-claude-transcripts.ps1 by hand and check its scheduled task.'
+    );
+  }
+
+  if (stampAge <= ARCHIVE_STALE_MS) return '';
+
+  const hours = Math.floor(stampAge / 3.6e6);
+  const age = hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+  return (
+    `TRANSCRIPT ARCHIVE STALE: last successful run ${age} ago (limit 48h). ` +
+    'The source tree prunes itself, so a quiet archiver is quietly losing data. ' +
+    'Check the scheduled task, then run scripts/archive-claude-transcripts.ps1.'
+  );
+}
+
 function probeSection(dir) {
   const probes = path.join(dir, '.claude', 'probes', 'run-all.js');
   if (!fs.existsSync(probes)) return '';
@@ -198,7 +245,7 @@ function build() {
 
 // Importable for the selftest; the hook body runs only when invoked directly.
 if (require.main !== module) {
-  module.exports = { note, probeSection };
+  module.exports = { note, probeSection, archiveSection };
   return;
 }
 
@@ -231,6 +278,10 @@ try {
   if (text) sections.push(text);
   const probes = probeSection(cwd);
   if (probes) sections.push(probes);
+  // The hooks install machine-global into <claudeHome>/hooks, so the parent
+  // directory IS the Claude home this hook is running from.
+  const archive = archiveSection(path.join(__dirname, '..'));
+  if (archive) sections.push(archive);
   if (sections.length) process.stdout.write(sections.join('\n\n') + '\n');
 } catch {
   /* never block session start */
