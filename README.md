@@ -445,7 +445,8 @@ value:
   guards: skip if the issue is already open, and skip if it closed
   recently. The ceremony itself closes the issue. The reminder never
   nags and never duplicates, and a missed ceremony stays visible as one
-  open issue instead of a pile.
+  open issue instead of a pile. The kit ships one instance:
+  `templates/ci/practice-review-reminder.yml.example`.
 - **A live-drift probe.** A weekly read-only cron diffs the live
   backend (schema, policies, grants, purge lists) against the repo's
   declared state, and fails loud on any mismatch. Declared state and
@@ -547,7 +548,7 @@ anti-patterns below show what that overhead costs.
 
 The practices above are themselves a system, and systems drift. Vendors
 re-gate features. CI bills creep. Docs diverge from the tracker.
-Automation briefs go stale against reality. Two recurring review passes
+Automation briefs go stale against reality. Four recurring review passes
 keep the process honest. The cadences are **defaults to tune, not
 mandates**; the low-ceremony rule applies to meta-process too.
 
@@ -626,6 +627,50 @@ accumulate:
   numbers**: thresholds written down before a cost optimization are
   stale the moment it lands.
 
+### Practice review (default: quarterly, or when a model generation lands)
+
+The two passes above audit the stack and the delivery system against
+the rules the shop already has. This one audits the rule-set. It diffs
+the operating model itself against external practice: the SDLC canon of
+human teams, quality engineering, production and security operations,
+and current AI-practitioner discourse. Four outward lenses sweep those
+bodies of practice against an inventory of what the shop actually runs.
+One inward lens reads the loop's own telemetry: decommission proposals
+for mechanisms that never fire, harness-primitive absorption (does the
+agent harness now cover a hook or a cron natively), gate economics
+(confirmed blocks per review round against the round's cost), and a
+metrics sunset (a metric that no review has cited in a decision for two
+runs is proposed for dropping).
+
+It is catch-and-report only. Recommendations reach the founder for
+triage, and nothing is adopted, filed wholesale, or decommissioned
+without approval. A candidate that contradicts a decision-of-record
+surfaces flagged, with the contradiction named and the strong reason
+stated. It is never smuggled in and never silently dropped. Before each
+run, the operator seals a detection key: one or two known gaps, hashed,
+with the hash posted to the review's tracker issue. A run that re-finds
+none of them is marked low-trust in its own report. Diminishing returns
+are expected. Each run resets the baseline, and a thin run with real
+verification is a pass, not a failure to hunt harder.
+
+Cost shape: the verification stage dominates, because every candidate
+gets a refute-by-default check against the repo and the tracker. One
+figure from the source project: a full run lands in the tens of
+dollars, API-equivalent.
+
+The kit ships the mechanism in four files: the skill
+(`claude/skills/practice-review/SKILL.md`), the inventory template it
+diffs against (`claude/skills/practice-review/inventory.template.md`),
+the pinned workflow (`claude/workflows/practice-review.js`), and the
+reminder cron (`templates/ci/practice-review-reminder.yml.example`,
+opt-in and not copied by the bootstrap).
+
+Promoted on the strength of a triggered run, not a scheduled one: the
+source project's first full run (2026-08-31) was triggered by a
+model-generation landing and triaged in full. The scheduled half, a
+quarterly cron that opens the reminder issue, has not yet fired
+anywhere. Its first fire is due 2026-10-01 and the readout is owed here.
+
 ### The unrecoverables audit (default: quarterly)
 
 One class of failure gets its own periodic pass, because it does not
@@ -648,9 +693,11 @@ permanently stop re-research.
 
 ## The proving ground
 
-*Dated 2026-08-25. The quarterly practice review (see "Periodic
-reviews") reconciles this list: when an entry's condition resolves, the
-entry is promoted into the kit, or retired with a reason.*
+*Dated 2026-08-25, last reconciled 2026-09-02. The practice review (see
+"Periodic reviews") reconciles this list at each run: when an entry's
+condition resolves, the entry is promoted into the kit, or retired with
+a reason. The review's own first ad-hoc run produced most of this list,
+and the review itself was the first entry promoted out of it.*
 
 The kit ships only what survives contact with a real build. The
 practices below are adopted and running on Sortomate, the live
@@ -663,10 +710,6 @@ see what is coming and why it is not here yet.
   oversized components. Catch-and-report only; its detection test
   passed on day one. *Promotes when the founder accepts most of its
   baseline findings.*
-- **Practice review.** A quarterly meta-review that diffs the operating
-  model itself against external best practice, plus an inward lens that
-  proposes decommissions. Its first ad-hoc run produced most of this
-  section. *Promotes after its first scheduled run.*
 - **Red-lane discipline.** For an expensive non-required check such as
   E2E, a workflow maintains one canonical red issue with a normalized
   failure signature and a day counter. A stale red escalates and blocks
