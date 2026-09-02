@@ -221,6 +221,28 @@ duplicates.
   deal: project-specific bits are `<PLACEHOLDER: ...>`-marked. Fill in the
   lens list and the gather-phase `gh` invocations (owner/project number) for
   the new project.
+- **`skills/practice-review/SKILL.md`**: the standing meta-review of the
+  operating model itself (kit README, "Periodic reviews"). Four outward
+  lenses diff the practices the shop runs against external canon, and one
+  inward lens reads the loop's own telemetry for decommission proposals,
+  harness-primitive absorption, gate economics and a metrics sunset.
+  Catch-and-report; the founder triages. The method carries over as-is: the
+  hard boundaries, the sealed detection key before each run, the seven run
+  steps. The project chooses three things: its tracker issue (opened at
+  adoption), the telemetry sources it keeps, and its own filing rules.
+- **`skills/practice-review/inventory.template.md`**: the skeleton of the
+  review's diff base. Copy it to `inventory.md` beside the skill and fill
+  each section from what the project actually runs. Descriptive, never
+  normative, and updated in the same PR as any mechanism change. A stale
+  inventory produces false gaps.
+- **`workflows/practice-review.js`**: the pinned workflow the skill runs.
+  Five sweep lenses, one refute-by-default verifier per lens, one synthesis
+  under the GUIDE headings. Everything project-bound arrives as an argument
+  (the repo, the tracker issue, a one-line project context, the inventory
+  path, the repo root, the run date, the telemetry pre-read), so it carries
+  no `<PLACEHOLDER>` markers. Fails open: a dead lens or verifier is logged
+  as a skip, never a block. Its reminder cron ships as
+  `templates/ci/practice-review-reminder.yml.example`.
 
 ## The delivery gotcha that makes or breaks all of these
 
@@ -317,7 +339,7 @@ This repo now runs those replays in CI, on every push and pull request to
 `scripts/`. Read what CI here does not cover before you trust it.
 Every hook that classifies text now has a replay: `guardrail.js`,
 `subagent-stall-check.sh`, `pr-merge-gate.js` and `session-start.js`.
-The remaining hooks, the workflow script, and the three PowerShell
+The remaining hooks, the workflow scripts, and the three PowerShell
 scripts get a syntax check and nothing more, so a hook that parses
 cleanly and behaves wrongly still ships green. `bootstrap.ps1` is the
 widest gap. It creates repositories and sets branch protection, and no

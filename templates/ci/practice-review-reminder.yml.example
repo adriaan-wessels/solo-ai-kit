@@ -1,0 +1,118 @@
+# Practice-review reminder: the QUARTERLY BACKSTOP for the practice-review
+# skill (claude/skills/practice-review/SKILL.md in the kit, which lands as
+# .claude/skills/practice-review/SKILL.md in a bootstrapped project).
+#
+# The practice review is the standing outward-facing meta-review of the
+# operating model. It diffs the practices the shop actually runs (recorded
+# in the skill's inventory.md) against external best practice and current
+# AI-practitioner discourse, plus one inward loop-telemetry lens (mechanism
+# decommission proposals, harness-primitive absorption, gate economics,
+# metrics sunset). On the source project it was mechanized under the
+# two-strikes rule: the only outward reviews ever taken were ad-hoc founder
+# impulses on consecutive days, and both found real gaps that the
+# inward-facing loops structurally cannot see (they audit conformance to
+# the existing rules, not the rule-set's completeness).
+#
+# This cron is the quarterly backstop only. The other trigger, a new default
+# model generation landing, cannot be scheduled; the skill carries it.
+# Quarterly is deliberate: each run resets the baseline and the discourse
+# does not move monthly. Running it more often manufactures noise, not
+# signal. Tune the cadence if your project's evidence says otherwise.
+#
+# NON-GATING: scheduled and manual only. It files one issue with the default
+# GITHUB_TOKEN and nothing else. It must never become a required check.
+# Schedule caveats: GitHub runs schedules only from the default branch, the
+# timing is best-effort, and GitHub suspends schedules after about 60 days
+# without repo activity.
+#
+# BOARD DEPENDENCY: the issue reaches the project board only through the
+# board's built-in "Auto-add to project" workflow (a web-UI setting with no
+# API surface; kit README, "Post-bootstrap checklist"). Until that is on,
+# the reminder lands off-board.
+#
+# OPT-IN: copy this file to the new project's
+# .github/workflows/practice-review-reminder.yml. scripts/bootstrap.ps1 does
+# not copy it, on purpose: a reminder is only useful once the skill's
+# inventory.md exists and its tracker issue is open (the skill's adoption
+# step). Fill the <PLACEHOLDER> below before the first tick.
+
+name: Practice Review Reminder
+
+on:
+  schedule:
+    # 06:18 UTC on the 1st of Jan/Apr/Jul/Oct: quarterly. Pick a minute
+    # distinct from any other first-of-month reminder in the repo, so the
+    # crons do not pile up on the same tick.
+    - cron: '18 6 1 1,4,7,10 *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  remind:
+    name: File the practice-review reminder issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # No actions/checkout: the job is pure GitHub API traffic.
+      - name: Create reminder issue unless one is already open or was recently closed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          TITLE="Practice review due"
+
+          # Idempotency guard 1: an open issue with this exact title means the
+          # previous cycle is still pending. Skip instead of stacking.
+          EXISTING=$(gh issue list --repo "$REPO" --state open \
+            --search "in:title \"$TITLE\"" --json number,title --limit 20 \
+            --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1)
+          if [ -n "${EXISTING:-}" ]; then
+            echo "Open reminder issue #$EXISTING already exists. Skipping."
+            exit 0
+          fi
+
+          # Idempotency guard 2 (anti-nag): skip if the last reminder closed
+          # within 30 days. Guard 1 already covers the still-pending case, so
+          # this guard only suppresses a re-nag right after an off-cadence
+          # model-generation-triggered run. 30 days does that while making a
+          # silently skipped quarter nearly impossible: a close would need to
+          # land within 30 days of the NEXT tick to suppress it.
+          RECENT_CLOSE=$(gh issue list --repo "$REPO" --state closed \
+            --search "in:title \"$TITLE\"" --json number,title,closedAt --limit 20 \
+            --jq ".[] | select(.title == \"$TITLE\") | .closedAt" | sort -r | head -1)
+          if [ -n "${RECENT_CLOSE:-}" ]; then
+            CLOSED_EPOCH=$(date -d "$RECENT_CLOSE" +%s)
+            NOW_EPOCH=$(date -u +%s)
+            AGE_DAYS=$(( (NOW_EPOCH - CLOSED_EPOCH) / 86400 ))
+            if [ "$AGE_DAYS" -lt 30 ]; then
+              echo "Last practice review closed $AGE_DAYS day(s) ago (< 30). Skipping, too soon to nag."
+              exit 0
+            fi
+          fi
+
+          BODY_FILE="$RUNNER_TEMP/practice_review_reminder_body.md"
+          cat > "$BODY_FILE" <<'EOF'
+          Time for the quarterly practice review: diff the operating model against external best practice and current AI-practitioner discourse, plus the inward loop-telemetry pass (mechanism decommission proposals, harness-primitive absorption, gate economics, metrics sunset).
+
+          - **How to run it:** invoke the `practice-review` skill in Claude Code (`.claude/skills/practice-review/SKILL.md` owns the method: seal the detection key first, refresh `inventory.md`, run the pinned workflow, triage).
+          - **Also runs off-cadence** when a new default model generation lands. If that happened recently and a review ran, close this issue.
+          - The review is **catch-and-report**: recommendations reach the founder for triage; nothing is adopted or decommissioned without approval. Contradictions of decisions-of-record surface flagged with their strong reason, never silently.
+          - Expect diminishing returns run over run. A thin run with real verification is a pass, not a failure to hunt harder.
+          EOF
+
+          # Milestone is best-effort: the no-milestone fallback keeps a renamed
+          # or closed milestone from killing the reminder itself. Set it to
+          # the project's inbox milestone (kit README, practice 1). If the
+          # placeholder is left in place, the first create fails and the
+          # fallback files the issue without a milestone.
+          MILESTONE="<PLACEHOLDER: inbox milestone name, e.g. Code health / tech debt>"
+          if gh issue create --repo "$REPO" --title "$TITLE" \
+               --body-file "$BODY_FILE" --milestone "$MILESTONE"; then
+            echo "Reminder issue created (milestone $MILESTONE)."
+          else
+            echo "Create with milestone failed (renamed/closed?). Retrying without."
+            gh issue create --repo "$REPO" --title "$TITLE" --body-file "$BODY_FILE"
+          fi
