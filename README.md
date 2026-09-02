@@ -654,9 +654,7 @@ are expected. Each run resets the baseline, and a thin run with real
 verification is a pass, not a failure to hunt harder.
 
 Cost shape: the verification stage dominates, because every candidate
-gets a refute-by-default check against the repo and the tracker. One
-figure from the source project: a full run lands in the tens of
-dollars, API-equivalent.
+gets a refute-by-default check against the repo and the tracker.
 
 The kit ships the mechanism in four files: the skill
 (`claude/skills/practice-review/SKILL.md`), the inventory template it
