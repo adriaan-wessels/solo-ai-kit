@@ -174,6 +174,25 @@ adopted. Fold them in wherever you adapt this template.
   assumed the system emits. Make every injection name the assertion that
   must report it, so a crash in the mutated copy does not count as a
   catch.
+- **A missing test is a finding. Check falsifiability in both directions,
+  and write the test plan from the requirement before you read the
+  diff.** The usual check runs from test to code: for every test the diff
+  adds, name the one-line mutation it would catch. That check only sees
+  the tests the author chose to write. Run it the other way too: for
+  every decision the diff adds or touches (a branch, a guard, a
+  threshold, a fallback), name the test that goes red if that decision
+  flips. No test named is a missing test. Then, on a risk surface, do the
+  second half before you open the diff: from the issue and the run
+  contract alone, list the assertions the requirement implies, one per
+  goal, non-goal and invariant ("must not depend on X" needs a test that
+  varies X), and check each against the suite. The diff cannot show
+  behaviour that was never coded, and a list written from the diff
+  inherits the diff's frame. The trigger was another founder's public
+  account (2026-08-29) of three releases that each shipped the same wrong
+  decision under a green suite: the agent wrote the code and the tests
+  from one frame, and no test constrained the decision the requirement
+  forbade. The source project adopted both checks as reviewer prompt
+  lines on 2026-09-02.
 - **Name vacuous verification as an explicit hunt target.** Look
   specifically for tests that pass against the exact bug they claim to
   guard. Four turned up in one week. CI cannot reach this class on its
