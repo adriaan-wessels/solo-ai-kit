@@ -6,3 +6,9 @@
 # so this is belt-and-braces for the one setup that would not: a Linux
 # toolchain reading a CRLF working tree (WSL, container bind mounts).
 *.md text eol=lf
+# scripts/practice_review_rollup.selftest.js extracts a source block out of the
+# workflow by line-anchored markers and evaluates it. CR bytes in that block
+# survive into the evaluated source, so pin both files to LF rather than trusting
+# a checkout's autocrlf setting.
+claude/workflows/*.js text eol=lf
+scripts/*.selftest.js text eol=lf

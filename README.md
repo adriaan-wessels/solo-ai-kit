@@ -653,21 +653,38 @@ none of them is marked low-trust in its own report. Diminishing returns
 are expected. Each run resets the baseline, and a thin run with real
 verification is a pass, not a failure to hunt harder.
 
-Cost shape: the verification stage dominates, because every candidate
-gets a refute-by-default check against the repo and the tracker.
+Every survivor is then rated on a practice-specific rubric (harm class
+crossed with local evidence, adoption cost kept out of the level), which
+orders what the founder reads first and gates nothing. Only the top band
+is triaged live; everything else is captured in one rolled-up issue per
+run and carried forward uncapped, because the priorities are the
+ordering and nothing is thrown away to keep a list short.
 
-The kit ships the mechanism in four files: the skill
+Cost shape: the verification stage dominates, because every candidate
+gets a refute-by-default check against the repo and the tracker, an
+independent second rating, and an attempt to ground it in a dated
+source.
+
+The kit ships the mechanism in five files: the skill
 (`claude/skills/practice-review/SKILL.md`), the inventory template it
 diffs against (`claude/skills/practice-review/inventory.template.md`),
-the pinned workflow (`claude/workflows/practice-review.js`), and the
-reminder cron (`templates/ci/practice-review-reminder.yml.example`,
-opt-in and not copied by the bootstrap).
+the rubric template it rates on
+(`claude/skills/practice-review/rubric.template.md`), the pinned
+workflow (`claude/workflows/practice-review.js`), and the reminder cron
+(`templates/ci/practice-review-reminder.yml.example`, opt-in and not
+copied by the bootstrap). The workflow's roll-up decisions carry a
+selftest (`scripts/practice_review_rollup.selftest.js`), which extracts
+and runs the shipped code rather than a copy of it.
 
 Promoted on the strength of a triggered run, not a scheduled one: the
 source project's first full run (2026-08-31) was triggered by a
 model-generation landing and triaged in full. The scheduled half, a
 quarterly cron that opens the reminder issue, has not yet fired
 anywhere. Its first fire is due 2026-10-01 and the readout is owed here.
+The rating layer is newer again: it is installed and its roll-up
+decisions are covered by a selftest, but no run has yet rated a real
+sweep, so its precision on live candidates is unmeasured. That readout
+is owed here too.
 
 ### The unrecoverables audit (default: quarterly)
 
