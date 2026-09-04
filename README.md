@@ -708,7 +708,7 @@ permanently stop re-research.
 
 ## The proving ground
 
-*Dated 2026-08-25, last reconciled 2026-09-02. The practice review (see
+*Dated 2026-08-25, last reconciled 2026-09-04. The practice review (see
 "Periodic reviews") reconciles this list at each run: when an entry's
 condition resolves, the entry is promoted into the kit, or retired with
 a reason. The review's own first ad-hoc run produced most of this list,
@@ -740,6 +740,27 @@ see what is coming and why it is not here yet.
   session-end scan, plus report-only logging of credential-file reads
   and upload-shaped commands. *Promotes after a one-week report-only
   trial.*
+- **Untrusted-fetch posture.** Native `ask` permission rules on every
+  fetch and download command (curl, wget, iwr, irm, certutil,
+  bitsadmin), `PYTHONSAFEPATH=1` in the environment, and a guardrail
+  rule that refuses a plain page read with curl to any host the built-in
+  fetch tools already serve, so the prompt is reserved for downloads,
+  sends, and the hosts that block those tools. Chosen over a regex
+  download detector after three review rounds kept finding bypasses in
+  the regex. *Promotes as one bundle, after a week of refusal rows shows
+  the false-positive rate. Never as the refusal alone: without the ask
+  rules it would refuse reads while downloads run unprompted.*
+- **Provenance tripwire.** A log-only hook. A mechanical pre-filter on
+  the action's shape (fetch, download, pipe to an interpreter, execute
+  from a temp location, outbound send) hands the few commands that match
+  to a fast-model judge, which reads the last operator request and the
+  last tool results and asks whether the command follows an instruction
+  found inside those results. The judge has no authority: it logs flag
+  or clear with the quoted evidence. Its fixture test flags an injected
+  instruction at 1.0 and clears the benign twin. *Promotes after a
+  fortnight's ledger (rows, false flags, latency, cost) and the
+  founder's call. The most it can ever earn is the power to return ask,
+  never allow and never deny.*
 - **Size and complexity ratchet.** A lint with per-file ceilings,
   grandfathered at adoption; raising a ceiling requires a recorded
   reason. It caught a real cross-PR break on its first day. *Promotes
