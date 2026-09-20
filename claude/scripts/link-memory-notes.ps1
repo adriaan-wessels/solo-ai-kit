@@ -16,12 +16,22 @@
 
     A hard link has no reparse point. The linked path IS a real path to the same
     file record, so canonicalisation has nothing to follow and the containment
-    check passes. Because both names point at one record, editing a note through
-    either path is immediately visible through the other. No copy, no sync, no
-    staleness.
+    check passes.
 
-    Idempotent. Re-run it after writing a new note; only NEW notes need a link,
-    edits to existing ones need nothing.
+    RUN THIS AFTER EDITS, NOT ONLY AFTER NEW NOTES. Both names point at one
+    record, so an IN-PLACE write through either path shows through the other.
+    But an editor that writes a temp file and renames it over the target -
+    which most do, including Claude Code's own Edit tool - creates a NEW record
+    and silently breaks the link. The other path then keeps serving the OLD
+    content while looking perfectly current. Measured 2026-09-20: two files
+    edited this way dropped from link count 2 to 1 on both sides, and the stale
+    side still carried text the edit had removed.
+
+    That is why the stale-copy branch below is not a nicety. Re-running repairs
+    it, and nothing warns you otherwise - a broken link and a current one look
+    identical in a directory listing.
+
+    Idempotent and safe to re-run at any time.
 
 .PARAMETER ProjectDir
     Project root. Defaults to two levels above this script, which is correct
