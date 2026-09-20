@@ -603,6 +603,20 @@ console.log('');
     // Control: if healthy and broken produced the same output, every row above
     // would hold for a section that does nothing at all.
     ok('CONTROL: healthy and broken trees differ', runMem(healthy) !== brkOut);
+
+    // The script's OWN default, which nothing above exercises: session-start.js
+    // always passes -ProjectDir, so the default never evaluated and a real bug
+    // survived every case here. Under PS 5.1 $PSScriptRoot is empty inside a
+    // param() default reached through -File, so a bare run threw. Invoke it the
+    // way a person would.
+    const bare = spawnHook(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', LINKER],
+      { cwd: path.join(__dirname, '..', '..'), encoding: 'utf8', timeout: 60000 }
+    );
+    const bareOut = String(bare.stdout || '') + String(bare.stderr || '');
+    ok('the script runs with no -ProjectDir', bare.status === 0 && !/empty string/i.test(bareOut));
+    ok('a bare run resolves the project, not the script folder', /\.claude[\\/]memory/.test(bareOut));
   }
 }
 

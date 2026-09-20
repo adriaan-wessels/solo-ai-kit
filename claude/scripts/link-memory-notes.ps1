@@ -51,12 +51,25 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $ProjectDir = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string] $ProjectDir,
     [switch] $DryRun
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# Resolve the default HERE, not in the param block. Under Windows PowerShell
+# 5.1 `$PSScriptRoot` is EMPTY inside a param() default when the script runs
+# through `-File`, so the default threw "Cannot bind argument ... empty string"
+# for every bare invocation. It worked only when called with `&` from an
+# already-running session, which is how it was first tested.
+#
+# session-start.js always passes -ProjectDir explicitly, so the hook never hit
+# this and neither did the suite. A person typing the script name did.
+if (-not $ProjectDir) {
+    if (-not $PSScriptRoot) { throw 'Cannot determine the script directory. Pass -ProjectDir explicitly.' }
+    $ProjectDir = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+}
 
 $ProjectDir = (Resolve-Path $ProjectDir).Path
 
