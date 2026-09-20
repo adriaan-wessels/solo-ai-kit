@@ -17,6 +17,7 @@
 // first — this hook runs before every session.
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 
@@ -186,6 +187,118 @@ function probeSection(dir) {
   return `PROBES NEED ATTENTION (exit ${r.status}):\n${out || '(no output)'}`;
 }
 
+// Memory notes live outside the project, so a file link to one cannot open:
+// the preview pane resolves a link only INSIDE the session working directory.
+// claude/scripts/link-memory-notes.ps1 hard-links them into .claude/memory so
+// they resolve. Bootstrap runs that script ONCE, which is not enough:
+//
+//   - a note written later has no link, and
+//   - EDITING a note breaks its link, because most editors write a temp file
+//     and rename it over the target, which creates a new file record.
+//
+// Both failures are invisible. The stale path still opens and still shows
+// plausible content, and a broken link is indistinguishable from a live one in
+// a directory listing. So this repairs at session start, BEFORE an agent starts
+// writing links into messages — repairing afterwards is too late to help.
+//
+// Detection is pure Node and exact: two names for one file record share an
+// inode, so a differing `ino` IS a broken link. PowerShell is spawned only when
+// something actually needs repair, which keeps the common path free.
+//
+// Adopted-but-broken is REPORTED; not-adopted is silent. Same rule the probe
+// and archive sections follow, and for the same reason.
+const MEMLINK_TIMEOUT_MS = Number(process.env.CLAUDE_MEMLINK_TIMEOUT_MS) || 15000;
+
+function memoryLinkDrift(sourceDir, destDir) {
+  const mds = (d) => {
+    try {
+      return fs.readdirSync(d).filter((f) => f.endsWith('.md'));
+    } catch {
+      return [];
+    }
+  };
+  const notes = mds(sourceDir);
+  const links = mds(destDir);
+  const drift = { missing: [], broken: [], orphans: [] };
+
+  for (const n of notes) {
+    let ls;
+    try {
+      ls = fs.statSync(path.join(destDir, n));
+    } catch {
+      drift.missing.push(n);
+      continue;
+    }
+    let ss;
+    try {
+      ss = fs.statSync(path.join(sourceDir, n));
+    } catch {
+      continue; // vanished mid-scan; the next session sees it
+    }
+    // String(): inode values exceed 2^53 on NTFS, so compare as text.
+    if (String(ls.ino) !== String(ss.ino)) drift.broken.push(n);
+  }
+  for (const l of links) if (!notes.includes(l)) drift.orphans.push(l);
+
+  return drift;
+}
+
+function memoryLinkSection(dir) {
+  // .claude/scripts/ in a bootstrapped project; claude/scripts/ in the kit itself.
+  const script = [
+    path.join(dir, '.claude', 'scripts', 'link-memory-notes.ps1'),
+    path.join(dir, 'claude', 'scripts', 'link-memory-notes.ps1'),
+  ].find((p) => fs.existsSync(p));
+  if (!script) return ''; // not adopted here
+
+  const home = process.env.CLAUDE_MEMLINK_HOME || path.join(os.homedir(), '.claude');
+  const sourceDir = path.join(home, 'projects', dir.replace(/[:\\/]/g, '-'), 'memory');
+  if (!fs.existsSync(sourceDir)) return ''; // no notes for this project yet
+
+  const destDir = path.join(dir, '.claude', 'memory');
+  const drift = memoryLinkDrift(sourceDir, destDir);
+  const count = drift.missing.length + drift.broken.length + drift.orphans.length;
+  if (count === 0) return ''; // healthy: say nothing, spawn nothing
+
+  // Adopted (the script is here) but unrunnable. Reported, not swallowed: the
+  // links silently stop tracking the notes, which looks exactly like healthy.
+  if (process.platform !== 'win32') {
+    return (
+      `MEMORY LINKS: ${count} note(s) need relinking, but link-memory-notes.ps1 ` +
+      'is Windows-only (fsutil). Reference memory notes by plain path here, not as links.'
+    );
+  }
+
+  let r;
+  try {
+    r = spawnSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-ProjectDir', dir],
+      { cwd: dir, encoding: 'utf8', timeout: MEMLINK_TIMEOUT_MS }
+    );
+  } catch {
+    return `MEMORY LINKS: ${count} note(s) need relinking and the repair could not start.`;
+  }
+  if (r.error || r.status === null || r.status !== 0) {
+    const why = r.status === null ? 'timed out' : 'failed';
+    return `MEMORY LINKS: ${count} note(s) need relinking and the repair ${why}.`;
+  }
+
+  // Re-check rather than trust the exit code: the script reporting success and
+  // the links actually being current are two different claims (principle 3).
+  const after = memoryLinkDrift(sourceDir, destDir);
+  const left = after.missing.length + after.broken.length + after.orphans.length;
+  if (left) {
+    return `MEMORY LINKS: repair ran but ${left} of ${count} are still wrong. Run ${path.basename(script)} by hand.`;
+  }
+
+  const parts = [];
+  if (drift.missing.length) parts.push(`${drift.missing.length} new`);
+  if (drift.broken.length) parts.push(`${drift.broken.length} broken by an edit`);
+  if (drift.orphans.length) parts.push(`${drift.orphans.length} orphaned`);
+  return `Memory links: repaired ${count} (${parts.join(', ')}).`;
+}
+
 function build() {
   let repo;
   try {
@@ -278,6 +391,11 @@ try {
   if (text) sections.push(text);
   const probes = probeSection(cwd);
   if (probes) sections.push(probes);
+  // Before the probes' output is read, not after: this repairs the links an
+  // agent is about to write into its messages. Uncached, like the probes —
+  // a cached "links are fine" is the exact verdict this exists to catch.
+  const memlinks = memoryLinkSection(cwd);
+  if (memlinks) sections.push(memlinks);
   // The hooks install machine-global into <claudeHome>/hooks, so the parent
   // directory IS the Claude home this hook is running from.
   const archive = archiveSection(path.join(__dirname, '..'));

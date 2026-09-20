@@ -64,7 +64,14 @@ $ProjectDir = (Resolve-Path $ProjectDir).Path
 # colon and every separator replaced by a hyphen:
 #   C:\Users\wesse\Dev\solo-ai-kit  ->  C--Users-wesse-Dev-solo-ai-kit
 $slug = $ProjectDir -replace '[:\\/]', '-'
-$sourceDir = Join-Path $env:USERPROFILE (Join-Path '.claude\projects' (Join-Path $slug 'memory'))
+# CLAUDE_MEMLINK_HOME overrides the Claude home, so the fixture trees in
+# session-start.selftest.js exercise the real repair against real hard links
+# instead of the operator's own notes. session-start.js reads the same variable,
+# and the two MUST agree: when they disagree the repair silently targets a
+# different tree, reports success, and fixes nothing. That is how this branch
+# was found.
+$claudeHome = if ($env:CLAUDE_MEMLINK_HOME) { $env:CLAUDE_MEMLINK_HOME } else { Join-Path $env:USERPROFILE '.claude' }
+$sourceDir = Join-Path $claudeHome (Join-Path 'projects' (Join-Path $slug 'memory'))
 $destDir = Join-Path $ProjectDir '.claude\memory'
 
 if (-not (Test-Path $sourceDir)) {

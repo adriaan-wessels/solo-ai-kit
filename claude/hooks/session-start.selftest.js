@@ -83,7 +83,31 @@ if (process.argv.includes('--prove')) {
       (s) => s.replace("if (stampAge <= ARCHIVE_STALE_MS) return '';", "return '';")],
     ['an unadopted machine is nagged about the archive  (-> "a machine without the archiver stays silent")',
       (s) => s.replace(/if \(!fs\.existsSync\(config\)\) return '';[^\n]*\n/, '')],
+
+    // memoryLinkSection. This one is platform-independent: the assertion that
+    // catches it runs everywhere, because a stale COPY needs no hard link to
+    // create.
+    ['a project without the link script is nagged  (-> "no link script = silent, not a warning")',
+      (s) => s.replace("  if (!script) return ''; // not adopted here", "  if (!script) return 'MEMORY LINKS: absent';")],
   ];
+
+  // The repair branches only execute on Windows, so injecting them on the
+  // Linux runner produces UNPROVEN rows for defects no assertion there COULD
+  // catch — which reads as a hole in the suite rather than a platform limit.
+  // Gate them instead, and print the gate: a defect list that silently shrinks
+  // by platform is the same failure as a test that silently does not run.
+  if (process.platform === 'win32') {
+    defects.push(
+      ['a link broken by an edit is never detected  (-> "a link broken by an edit is repaired")',
+        (s) => s.replace(/if \(String\(ls\.ino\) !== String\(ss\.ino\)\) drift\.broken\.push\(n\);/, '')],
+      ['a healthy tree is reported as repaired  (-> "a fully linked tree says nothing")',
+        (s) => s.replace(/if \(count === 0\) return '';[^\n]*\r?\n/, '')],
+      ['the repair script is believed on its exit code  (-> "a script that exits 0 without repairing is NOT believed")',
+        (s) => s.replace(/ {2}const after = memoryLinkDrift\(sourceDir, destDir\);[\s\S]*?\r?\n {2}\}\r?\n/, '')]
+    );
+  } else {
+    console.log('  (3 memory-link repair defects NOT injected: Windows-only branches)');
+  }
 
   let proven = 0;
   for (const [name, mutate] of defects) {
@@ -472,6 +496,105 @@ ok(
   'a stale stamp warns even when the config file is gone',
   /STALE/.test(archiveSection(archiveFixture({ stampAgeHours: 72 })))
 );
+
+console.log('');
+// memoryLinkSection. The repair path needs real hard links, so it runs only on
+// Windows; CI is ubuntu-latest and exercises the platform branch instead. The
+// skip is PRINTED, because "these tests passed" and "these tests never ran"
+// must not look the same — the same rule the probe section is held to.
+{
+  const { spawnSync: spawnHook, execFileSync: exec } = require('child_process');
+  const LINKER = path.join(__dirname, '..', 'scripts', 'link-memory-notes.ps1');
+
+  const box = fsx.mkdtempSync(path.join(osx.tmpdir(), 'ss-memlink-'));
+  fsx.mkdirSync(path.join(box, 'hooks'), { recursive: true });
+  fsx.mkdirSync(path.join(box, 'state'), { recursive: true });
+  const hookCopy = path.join(box, 'hooks', 'session-start.js');
+  fsx.copyFileSync(SRC, hookCopy); // SRC, so --prove injects into this too
+
+  // script: 'real' | 'liar' (exits 0, repairs nothing) | 'none'
+  // dest:   { name: 'link' } for a real hard link, or any string for a stale COPY
+  const memFixture = ({ script = 'real', notes = {}, dest = {} }) => {
+    const root = fsx.mkdtempSync(path.join(osx.tmpdir(), 'memlink-'));
+    const proj = path.join(root, 'proj');
+    const home = path.join(root, 'home');
+    fsx.mkdirSync(path.join(proj, '.claude', 'scripts'), { recursive: true });
+    const sp = path.join(proj, '.claude', 'scripts', 'link-memory-notes.ps1');
+    if (script === 'real') fsx.copyFileSync(LINKER, sp);
+    else if (script === 'liar') fsx.writeFileSync(sp, 'exit 0\n');
+
+    const src = path.join(home, 'projects', proj.replace(/[:\\/]/g, '-'), 'memory');
+    fsx.mkdirSync(src, { recursive: true });
+    for (const [n, c] of Object.entries(notes)) fsx.writeFileSync(path.join(src, n), c);
+
+    const dd = path.join(proj, '.claude', 'memory');
+    if (Object.keys(dest).length) {
+      fsx.mkdirSync(dd, { recursive: true });
+      for (const [n, how] of Object.entries(dest)) {
+        if (how === 'link') exec('fsutil', ['hardlink', 'create', path.join(dd, n), path.join(src, n)], { stdio: 'ignore' });
+        else fsx.writeFileSync(path.join(dd, n), how);
+      }
+    }
+    return { proj, home, src, dd };
+  };
+
+  const runMem = (f) =>
+    String(
+      spawnHook(process.execPath, [hookCopy], {
+        input: JSON.stringify({ cwd: f.proj }),
+        env: { ...process.env, CLAUDE_MEMLINK_HOME: f.home },
+        encoding: 'utf8',
+        timeout: 60000,
+      }).stdout || ''
+    );
+
+  // Platform-independent. A stale COPY needs no fsutil to create.
+  ok(
+    'no link script = silent, not a warning',
+    !/emory link/i.test(runMem(memFixture({ script: 'none', notes: { 'a.md': 'x' }, dest: { 'a.md': 'stale' } })))
+  );
+
+  if (process.platform !== 'win32') {
+    // The adopted-but-unrunnable branch, which is the real state on this runner.
+    const out = runMem(memFixture({ notes: { 'a.md': 'x' }, dest: { 'a.md': 'stale' } }));
+    ok('off-Windows, drift is reported rather than silently ignored', /MEMORY LINKS/.test(out));
+    ok('off-Windows, the reason names the platform limit', /Windows-only/.test(out));
+    console.log('  (memory-link repair tests SKIPPED: need Windows hard links)');
+  } else {
+    const healthy = memFixture({ notes: { 'a.md': 'x' }, dest: { 'a.md': 'link' } });
+    ok('a fully linked tree says nothing', !/emory link/i.test(runMem(healthy)));
+
+    const added = memFixture({ notes: { 'a.md': 'x', 'b.md': 'y' }, dest: { 'a.md': 'link' } });
+    const addedOut = runMem(added);
+    ok('a new note is repaired', /repaired 1/.test(addedOut) && /1 new/.test(addedOut));
+    ok(
+      'the repaired note really is one file record',
+      String(fsx.statSync(path.join(added.src, 'b.md')).ino) ===
+        String(fsx.statSync(path.join(added.dd, 'b.md')).ino)
+    );
+
+    // The case this section exists for: an editor renamed over the link, so the
+    // project path serves OLD content while looking perfectly current.
+    const brk = memFixture({ notes: { 'a.md': 'EDITED' }, dest: { 'a.md': 'stale from a rename' } });
+    const brkOut = runMem(brk);
+    ok('a link broken by an edit is repaired', /repaired 1/.test(brkOut) && /broken by an edit/.test(brkOut));
+    ok('the stale content is gone after repair', fsx.readFileSync(path.join(brk.dd, 'a.md'), 'utf8') === 'EDITED');
+
+    const orph = memFixture({ notes: { 'a.md': 'x' }, dest: { 'a.md': 'link', 'gone.md': 'orphan' } });
+    const orphOut = runMem(orph);
+    ok('an orphan link is reported', /1 orphaned/.test(orphOut));
+    ok('an orphan link is actually removed', !fsx.existsSync(path.join(orph.dd, 'gone.md')));
+
+    // Principle 3: the script's exit code is a claim by the thing under test.
+    // A script that exits 0 and repairs nothing must not read as success.
+    const liar = memFixture({ script: 'liar', notes: { 'a.md': 'x' }, dest: { 'a.md': 'stale' } });
+    ok('a script that exits 0 without repairing is NOT believed', /still wrong/.test(runMem(liar)));
+
+    // Control: if healthy and broken produced the same output, every row above
+    // would hold for a section that does nothing at all.
+    ok('CONTROL: healthy and broken trees differ', runMem(healthy) !== brkOut);
+  }
+}
 
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
