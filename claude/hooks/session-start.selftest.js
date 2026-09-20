@@ -504,7 +504,15 @@ console.log('');
 // must not look the same — the same rule the probe section is held to.
 {
   const { spawnSync: spawnHook, execFileSync: exec } = require('child_process');
+  // The repair script sits at <kit>/claude/scripts/. That resolves from the KIT
+  // tree but not from a machine-global install, where these hooks live in
+  // <claudeHome>/hooks/ and there is no sibling scripts/ — the hook itself does
+  // not care (it resolves the script per PROJECT), but this suite needs a real
+  // copy to seed fixtures with. Found by running the installed copy, where the
+  // missing file threw an ENOENT stack trace instead of saying what was wrong.
+  // Report and skip, like every other unrunnable-harness path in this file.
   const LINKER = path.join(__dirname, '..', 'scripts', 'link-memory-notes.ps1');
+  const haveLinker = fsx.existsSync(LINKER);
 
   const box = fsx.mkdtempSync(path.join(osx.tmpdir(), 'ss-memlink-'));
   fsx.mkdirSync(path.join(box, 'hooks'), { recursive: true });
@@ -554,7 +562,9 @@ console.log('');
     !/emory link/i.test(runMem(memFixture({ script: 'none', notes: { 'a.md': 'x' }, dest: { 'a.md': 'stale' } })))
   );
 
-  if (process.platform !== 'win32') {
+  if (!haveLinker) {
+    console.log('  (memory-link tests SKIPPED: no link-memory-notes.ps1 at ' + LINKER + ')');
+  } else if (process.platform !== 'win32') {
     // The adopted-but-unrunnable branch, which is the real state on this runner.
     const out = runMem(memFixture({ notes: { 'a.md': 'x' }, dest: { 'a.md': 'stale' } }));
     ok('off-Windows, drift is reported rather than silently ignored', /MEMORY LINKS/.test(out));
