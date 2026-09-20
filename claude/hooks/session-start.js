@@ -199,7 +199,7 @@ function probeSection(dir) {
 // Both failures are invisible. The stale path still opens and still shows
 // plausible content, and a broken link is indistinguishable from a live one in
 // a directory listing. So this repairs at session start, BEFORE an agent starts
-// writing links into messages — repairing afterwards is too late to help.
+// writing links into messages. Repairing afterwards is too late to help.
 //
 // Detection is pure Node and exact: two names for one file record share an
 // inode, so a differing `ino` IS a broken link. PowerShell is spawned only when
@@ -392,7 +392,7 @@ try {
   const probes = probeSection(cwd);
   if (probes) sections.push(probes);
   // Before the probes' output is read, not after: this repairs the links an
-  // agent is about to write into its messages. Uncached, like the probes —
+  // agent is about to write into its messages. Uncached, like the probes:
   // a cached "links are fine" is the exact verdict this exists to catch.
   const memlinks = memoryLinkSection(cwd);
   if (memlinks) sections.push(memlinks);

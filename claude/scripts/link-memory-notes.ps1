@@ -100,8 +100,8 @@ if (-not (Test-Path $destDir)) {
 
 # fsutil prints the paths sharing a file record WITHOUT the drive letter, so
 # compare on that form. Returns $true when $linkPath is already the same record
-# as $sourcePath - which distinguishes a live hard link from a stale COPY left
-# behind by an older version of this script or by hand.
+# as $sourcePath. That distinguishes a live hard link from a stale COPY, which
+# an older version of this script or a manual copy can leave behind.
 function Test-SameRecord {
     param([string] $LinkPath, [string] $SourcePath)
     if (-not (Test-Path $LinkPath)) { return $false }
