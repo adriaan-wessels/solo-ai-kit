@@ -408,6 +408,25 @@ if (Test-Path $claudeDestDir) {
     Write-DoneLine ('copied claude/ -> {0} (git-ignored, see .gitignore above)' -f $claudeDestDir)
 }
 
+Write-StepHeader 'Hard-link memory notes into .claude\memory (so the preview pane can open them)'
+# Memory notes live outside the project, under ~\.claude\projects\<slug>\memory.
+# The Claude Code preview pane opens a file link only when the path resolves
+# INSIDE the session working directory, so a link to a note fails with
+# "it lives outside the working directory". A junction does not help - the pane
+# canonicalises the reparse point first. A hard link does, because there is no
+# reparse point to follow. Measured 2026-09-20; see the script's .DESCRIPTION.
+#
+# New projects have no notes yet, so this usually reports SKIPPED here and does
+# its real work on later runs. The script is idempotent and safe to re-run.
+$linkScript = Join-Path $KitRoot 'claude\scripts\link-memory-notes.ps1'
+if (-not (Test-Path $linkScript)) {
+    Write-SkippedLine ('link-memory-notes.ps1 not found at {0}' -f $linkScript)
+} elseif ($DryRun) {
+    Write-DryRunLine ('& "{0}" -ProjectDir "{1}"' -f $linkScript, $ProjectDir)
+} else {
+    & $linkScript -ProjectDir $ProjectDir
+}
+
 Write-StepHeader 'Dedupe project-level hooks against a machine-global install'
 
 $globalSettingsPath = Join-Path $env:USERPROFILE '.claude\settings.json'
