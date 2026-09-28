@@ -177,6 +177,10 @@ practices below read as instances of a rule instead of an arbitrary list.
 Each practice generalizes beyond the project it was learned on. The list
 is roughly in the order a new project should adopt them.
 
+This kit also ships `shared-folder-exchange/`, a file-based protocol for
+two AI chat agents on different vendors to review one project together.
+See its README to set it up.
+
 ### 1. One machine-readable source of truth, maintained by agents
 
 The issue tracker (GitHub Issues plus a Project board) is the spec, not
