@@ -1,0 +1,35 @@
+{
+  "protocol_version": 2,
+  "thread": "<folder name>",
+  "purpose": "<one sentence>",
+  "participants": [
+    "<agent A>",
+    "<agent B>"
+  ],
+  "first_speaker": "<agent A>",
+  "max_rounds": 12,
+  "deadline": "<ISO datetime, well beyond need>",
+  "finding_prefix": "F",
+  "owns": [
+    "<project files this thread may change>"
+  ],
+  "review_policy": {
+    "tier": "science",
+    "required_markers": [],
+    "forbidden_phrases": [],
+    "table_cell_marker": {
+      "if_any_word": [
+        "examiner",
+        "buyer",
+        "supervisor",
+        "investor",
+        "regulator"
+      ],
+      "require": "[inference"
+    }
+  },
+  "control_plane_freeze": true,
+  "milestones": {
+    "M1": "<the first practical step this review can block>"
+  }
+}
