@@ -177,9 +177,11 @@ practices below read as instances of a rule instead of an arbitrary list.
 Each practice generalizes beyond the project it was learned on. The list
 is roughly in the order a new project should adopt them.
 
-This kit also ships `shared-folder-communications-protocol/`, a
-file-based protocol for two AI chat agents on different vendors to
-review one project together. See its README to set it up.
+This kit also ships `shared-folder-communications-protocol/`, the
+Shared-folder Communications Protocol (SCP). SCP is a simple,
+file-based protocol for one person, two AI agents and one computer.
+See its README to set it up. The earlier, strict version 2.0 is at tag
+[`exchange-v2.0`](https://github.com/adriaan-wessels/solo-ai-kit/tree/exchange-v2.0/shared-folder-exchange).
 
 ### 1. One machine-readable source of truth, maintained by agents
 

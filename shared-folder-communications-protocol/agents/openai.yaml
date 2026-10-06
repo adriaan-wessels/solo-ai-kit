@@ -1,0 +1,4 @@
+interface:
+  display_name: "SCP"
+  short_description: "Shared-folder agent communications"
+  default_prompt: "Use $scp to start, check, answer, watch, or close an SCP thread."

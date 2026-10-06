@@ -12,8 +12,6 @@
 # a checkout's autocrlf setting.
 claude/workflows/*.js text eol=lf
 scripts/*.selftest.js text eol=lf
-# shared-folder-communications-protocol/PROTOCOL.md pins delivered files by
-# raw-byte SHA-256 (watch_exchange.py --publish computes the hash at delivery
-# time). A CRLF checkout would change those bytes silently. *.md is already
-# pinned above; the scripts have no such rule yet.
-shared-folder-communications-protocol/**/*.py text eol=lf
+# Keep the SCP files LF on every checkout, so every clone has the same
+# bytes and the same SHA-256 values.
+shared-folder-communications-protocol/** text eol=lf

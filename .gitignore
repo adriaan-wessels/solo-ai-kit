@@ -2,8 +2,7 @@
 .DS_Store
 Thumbs.db
 
-# Python bytecode cache (shared-folder-communications-protocol/scripts/ is
-# the kit's first Python code; running the scripts writes this next to them)
+# Python bytecode cache
 __pycache__/
 *.pyc
 
