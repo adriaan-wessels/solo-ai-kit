@@ -5,12 +5,13 @@ to pass messages over the walls of their separate products. Standard library onl
 from the files in the thread folder, so nothing is lost if an agent or its session restarts.
 See PROTOCOL.md for the rules and their limits.
 
-  python scp.py init    <thread> --participants A,B --first A --max-rounds N --deadline 2026-10-10T12:00:00Z --purpose "..."
+  python scp.py init    <thread> --participants A,B --first A --max-rounds N --deadline YYYY-MM-DDTHH:MM:SSZ --purpose "..."
   python scp.py status  <thread> <me>          whose turn, what is unread, and why
   python scp.py publish <thread> <draft.md>    check a draft and publish it (never overwrites)
-  python scp.py watch   <folder> <me> <minutes> [--interval 60]
-                                                     wait until it is <me>'s turn in any thread under <folder>,
-                                                     a thread there is damaged, or every one is finished
+  python scp.py watch   <thread or folder> <me> <minutes> [--interval 60]
+                                                     wait until it is <me>'s turn in that thread (or in any thread
+                                                     under that folder), a watched thread is damaged, or every
+                                                     watched thread is finished
   python scp.py check   <thread>               list any damage to the history (edits, missing or extra files, gaps)
   python scp.py selftest
 
@@ -370,12 +371,21 @@ def check(thread):
 
 
 def init(thread, participants, first, max_rounds, deadline, purpose):
-    mf = {"protocol": "SCP 1.5.6", "purpose": purpose, "participants": participants, "first_speaker": first,
+    mf = {"protocol": "SCP 1.6.1", "purpose": purpose, "participants": participants, "first_speaker": first,
           "max_rounds": max_rounds, "deadline": deadline}
     probs = check_manifest(mf)
     if probs:
         raise SystemExit("; ".join(probs))
-    os.makedirs(thread, exist_ok=False)
+    if parse_time(deadline) <= now_utc():
+        raise SystemExit(f"refused: the deadline {deadline} has already passed; give a deadline in the future")
+    exists = (f"refused: {thread} already exists; init never reuses or overwrites a thread, "
+              "so choose a new thread name")
+    if os.path.lexists(thread):
+        raise SystemExit(exists)
+    try:
+        os.makedirs(thread, exist_ok=False)
+    except FileExistsError:
+        raise SystemExit(exists) from None
     with open(os.path.join(thread, "thread.json"), "w", encoding="utf-8", newline="\n") as fh:
         json.dump(mf, fh, indent=2)
 
@@ -471,7 +481,13 @@ def selftest():
         fh.write("edited\n")
     case("check detects an edit after publication", any(f2 in b for b in check(th)))
     th2 = os.path.join(root, "late")
-    init(th2, ["alice", "bob"], "alice", 4, "2020-01-01T00:00:00Z", "expired")
+    g = globals()
+    real_now = g["now_utc"]
+    g["now_utc"] = lambda: datetime.datetime(2019, 12, 31, tzinfo=datetime.timezone.utc)
+    try:
+        init(th2, ["alice", "bob"], "alice", 4, "2020-01-01T00:00:00Z", "expired")
+    finally:
+        g["now_utc"] = real_now
     case("an expired thread refuses a new message", not publish(th2, draft("alice", "bob", "001", "none", "continue"))[0])
     th3 = os.path.join(root, "w")
     init(th3, ["alice", "bob"], "alice", 4, tomorrow, "watch")
@@ -560,6 +576,20 @@ def selftest():
             case(f"L004 {label} refused", True)
     init(os.path.join(root, "cap998"), ["alice", "bob"], "alice", MAX_CAP, tomorrow, "x")
     case(f"max_rounds {MAX_CAP} accepted", True)
+    # --- version 1.6.1: init refuses, with a message and no traceback
+    before = open(os.path.join(th, "thread.json"), "rb").read()
+    try:
+        init(th, ["alice", "bob"], "alice", 3, tomorrow, "again")
+        case("init refuses an existing thread folder", False)
+    except SystemExit as e:
+        case("init refuses an existing thread folder",
+             "already exists" in str(e) and open(os.path.join(th, "thread.json"), "rb").read() == before)
+    past = os.path.join(root, "past")
+    try:
+        init(past, ["alice", "bob"], "alice", 4, "2020-01-01T00:00:00Z", "x")
+        case("init refuses a deadline that has passed", False)
+    except SystemExit as e:
+        case("init refuses a deadline that has passed", "already passed" in str(e) and not os.path.exists(past))
     # --- version 1.2: the 004 re-review cases
     def fault_after(nbytes):
         def f(thread, line):

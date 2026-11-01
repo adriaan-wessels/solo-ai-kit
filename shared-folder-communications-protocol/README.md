@@ -27,9 +27,10 @@ coordinate agents on different computers. See "Limits" below.
    agent the three files (`SKILL.md`, `PROTOCOL.md`, `scp.py`) as instructions and tools. `SKILL.md` alone is not
    enough.
 4. Invoke the skill in one agent's chat with what the thread is for, for example *"/scp review section 3 of my
-   draft"* (`$scp` in Codex). If you gave no round limit or deadline, that agent sizes them from the job. The first
-   time, it also asks which folder to keep threads in. It remembers the folder. It asks once, then starts the thread
-   and gives you one short block.
+   draft"* (`$scp` in Codex). If you gave no round limit or deadline, it uses a standing limit you have approved,
+   or sizes them from the job and asks once. The first time, it also asks which folder to keep threads in, and
+   remembers it. It then starts the thread and gives you one short block straight away, before it prepares the
+   opening message.
 5. Read the block and paste it into the other agent's chat. Once pasted it is your instruction.
 6. To stop a thread at any time, create an empty file named `STOP` in its folder.
 
@@ -58,28 +59,39 @@ it:
 
 ## Status
 
-Version 1.5.6, 4 October 2026, accepted (1.5.0, 1.5.1 and 1.5.4 were not approved; 1.5.2, 1.5.3 and 1.5.5 were
-accepted). This is the third staging of 1.5.6 (r3). The protocol adds conventions that came out of a long review in
-practice:
+Version 1.6.1, 1 November 2026, accepted. The protocol rules are unchanged from 1.5.6. This version changes how a
+thread is started and watched, so that the person waits as little as possible for the block to paste:
 
-- hashes for files a conclusion depends on, with both closing messages carrying their own;
-- finding IDs that are never reused and carry the participant's name;
-- a round defined as one message, with when to propose close;
-- what to do about a problem found after proposing close;
-- when a watch ends; and
-- that an agent's own summary of a thread is not protected.
+- the starting agent asks any questions in one turn and, where the product allows, makes its first access attempt in
+  the same turn;
+- it then starts the thread and shows the block at once, before it reads materials or writes the opening message;
+- round limit and deadline are settled separately, each from the first of these that applies:
+  - a value given when the skill is invoked;
+  - a standing limit the person has approved, used without asking unless the work needs more;
+  - an estimate the agent asks about once;
+- a time limit is turned into one fixed UTC deadline just before `init`, and an expired deadline is never reused;
+- the receiving agent checks the thread as soon as it gets the block and keeps checking even before `001` exists;
+- each agent watches only its own threads, by pointing `watch` at the thread's folder. Several threads can then run at
+  once without waking or stopping each other's watches; and
+- an agent may keep its unpublished draft inside the thread under a dot-name.
 
-The script changes `watch` and its version string. `watch` now returns 3 once every watched thread is finished, not
-only when every thread is closed. A thread is finished when it is closed, stopped, or past its cap or deadline with no
-live proposal. `watch` now also returns 4 when a thread's history is damaged and no thread is ready. The feedback
-thread that agreed the 1.5.6 text recommended leaving `scp.py` unchanged. The first review of 1.5.6 reversed that
-after tests by the two participants showed that `watch` kept running on stopped, expired and finished threads.
-Claude tested stopped and finished threads; ChatGPT tested all three. The self-test (74 cases, 15 of them new for
-`watch`) passes on Windows with Python 3.11.16, including under `-I -S -B`.
+`scp.py` changes in three ways. New threads record `SCP 1.6.1`. `init` now refuses, with a message and no traceback, a
+thread folder that already exists or a deadline that has passed. The usage text describes `watch` on one thread or on
+a folder of threads. The self-test (76 cases, 2 of them new for `init`) passes on Windows with Python 3.11.16,
+including under `-I -S -B`.
 
-**Upgrading from 1.5.5.** Apply the finding-ID convention to new threads; do not rename findings in existing
-threads. A caller that treated `watch` exit 3 as "every thread closed by agreement" should now read it as "every
-thread finished". That caller should also handle exit 4 and damaged states listed with exit 0.
+**Upgrading from 1.6.0.** The start order and watch rules are the same; only their wording changed. `init` now gives
+exit 1 and a `refused:` message for an existing folder or a past deadline. In 1.6.0 the first gave a traceback, and
+the second created a thread that was already finished.
+
+**Upgrading from 1.5.6.** No change to existing threads: `watch` and `status` find 1.5.x threads as before. To use a
+standing limit, store it where each starting agent loads instructions into every session. For example: "SCP threads: 8
+rounds and 24 hours from init unless I say otherwise". Point existing watches at a thread's own folder.
+
+If upgrading from 1.5.5 or earlier, also account for the 1.5.6 conventions. Conclusions that depend on files carry
+their hashes. Finding IDs carry the participant's name and are never reused. Apply the finding-ID convention to new
+threads; do not rename findings in existing threads. For watch callers, exit 3 means finished, not necessarily closed
+by agreement; handle exit 4 and inspect damaged states returned alongside exit 0.
 
 **Review history.** ChatGPT reviewed the protocol in these threads, all run under this protocol and kept in the
 author's private repository.
@@ -119,10 +131,24 @@ author's private repository.
   the stateless `watch` does not do. The r3 staging corrects that and documents that callers must check every returned
   state, including on exit 0.
 
+- `threads/review-scp-block-first/` (start order). ChatGPT accepted the block-first start. It set five requirements.
+  The block shows as a visible message, with work continuing in the same run. Any access probe is cheap and valid, and
+  used only when needed. There is no draft block. The receiver checks immediately. A timing claim is stated only as a
+  mechanism, not a measured saving.
+- `threads/review-scp-157-full/` (the full skill, then labelled 1.5.7). ChatGPT required round limit and deadline to
+  be settled separately, and a time limit stored as a duration. It also required watches limited to the agent's own
+  threads, and drafts allowed in the thread. It found that `init` accepts a deadline in the past and that the old
+  example deadline had expired. The version was then renumbered 1.6.0 with the protocol header and script string, at
+  the author's decision; that renumbering was not part of the review.
+- `threads/review-scp-160-docs/` (1.6.0 documentation). ChatGPT's byte check found README text and a provenance line
+  that no review had covered. It accepted the complete 1.6.0 staging, renumbering included, after four README
+  clarifications.
+
 **Accepted limits.** No identity authentication, and one computer only. The damage recheck is a bounded best
 effort, not an atomic snapshot. Damage reports are deferred while a fresh publish lock is held. An interrupted
 publish needs the operator to recover it. The watch can overshoot its requested time by up to one interval. `watch`
 skips a thread whose `thread.json` cannot be read, so it cannot report damage to that file.
 
-Installed and used in Claude Science and Codex on 1 October 2026. Not yet tested: other products, and Cowork
-scheduled tasks.
+Installed and used in Claude Science and Codex on 1 October 2026. On 28 and 29 October 2026, Claude Science initiated
+threads using the proposed start order. Codex joined using its installed 1.5.6 skill plus the pasted instructions. Not
+yet tested: other products, and Cowork scheduled tasks.
