@@ -41,6 +41,39 @@
     nonzero if the backup repo isn't set up yet, or a git command fails - so
     a scheduled/unattended run can be monitored on exit code alone.
 
+    LOG, STAMP AND LOCK: every run writes two lines to $ClaudeHome\
+    hooks-backup.log. The first is 'started', before the first copy. The
+    second is the verdict (ok, ok-local, FAILED or busy) with duration and
+    reason. A run writes $ClaudeHome\.last-state-backup only after
+    git ls-remote shows the pushed commit on the remote. The stamp holds
+    the time, the repo path, the commit and the remote ref. One run holds
+    $ClaudeHome\.state-backup.lock for the whole transaction. The lock is
+    an exclusive file handle, so the OS releases it when the process ends.
+    A second launch logs 'busy' and exits 0. The kit's session-start hook
+    reads the stamp and the log. It reports four states. A failure is
+    newer than the last verified success, and a retry does not clear it.
+    A 'started' has no verdict after 30 minutes. The stamp is older than
+    48 hours. The stamp does not parse or is dated in the future. It
+    reports a .git\index.lock if one is present. An exit code nobody
+    reads is not a monitor. On the source machine a lock file left by a
+    killed run blocked every commit for seven weeks. 109 failure lines
+    went unread.
+
+    COVERAGE: a missing required input fails the run and is named in the
+    log line. The required inputs are the global CLAUDE.md, the projects
+    directory, every configured extra path, and a remote to push to
+    (unless -NoPush is given). A dry run prints SKIP instead. Every
+    skipped directory is printed.
+
+    EXCLUDED DIRECTORIES: if $ClaudeHome\backup-exclude-dirs.txt exists,
+    any directory with a name listed in it is skipped in every copy. One
+    directory NAME per line; blank lines and #-comments are ignored. This
+    covers memory folders and extra paths alike, and each skip is printed.
+    'worktrees' is always excluded. Use it for bulky material that can be
+    made again and that lands under a memory folder. A 650 MiB folder
+    copied on every run pushed the script past the session-end hook's time
+    limit, and the kill mid-write left the lock.
+
     Written for Windows PowerShell 5.1 - no `&&`/`||`, no ternary, no
     null-coalescing/null-conditional operators.
 
@@ -135,6 +168,76 @@ $BackupRepoPath = [System.IO.Path]::GetFullPath($BackupRepoPath)
 
 $SourceClaudeMd = Join-Path $ClaudeHome 'CLAUDE.md'
 $SourceProjectsDir = Join-Path $ClaudeHome 'projects'
+$LogFile = Join-Path $ClaudeHome 'hooks-backup.log'
+$StampFile = Join-Path $ClaudeHome '.last-state-backup'
+$ExcludeDirsFile = Join-Path $ClaudeHome 'backup-exclude-dirs.txt'
+$RunStarted = Get-Date
+
+function Finish-Run {
+    # One log line per run that reached the git step, whatever happened; the
+    # stamp only when the snapshot reached the remote. A failing run that
+    # still stamped would silence the one line (session-start) that exists
+    # to catch failing runs. Exits the script with $ExitCode.
+    param(
+        [Parameter(Mandatory = $true)][string]$Verdict,
+        [string]$Reason = '',
+        [int]$ExitCode = 0,
+        [switch]$Stamp
+    )
+    $elapsed = [int]((Get-Date) - $RunStarted).TotalSeconds
+    $when = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+    $verdict = $Verdict
+    $reason = $Reason
+    $exitCode = $ExitCode
+    if ($Stamp) {
+        # Written FIRST, by an in-place replace of a complete temp file, so
+        # the ok line below is never ahead of the record it vouches for and
+        # a reader never sees a half-written or missing record. Line 2
+        # names the repo so the session-start tripwire can look for a
+        # .git\index.lock there and say so by path. Lines 3 and 4 are the
+        # commit and the remote ref that were verified, so the record says
+        # what is backed up, not only when. A record that cannot be written
+        # turns the run into a failure: success nobody can read is not one.
+        try {
+            $tmp = $StampFile + '.tmp'
+            Set-Content -Path $tmp -Value @($when, $BackupRepoPath, $VerifiedCommit, $VerifiedRef) -Encoding utf8
+            # Move-Item -Force deletes the target before the move in PS 5.1,
+            # so a reader could find no record at all. File.Replace swaps in
+            # place; File.Move covers the first publication.
+            if (Test-Path $StampFile) {
+                [System.IO.File]::Replace($tmp, $StampFile, $null)
+            } else {
+                [System.IO.File]::Move($tmp, $StampFile)
+            }
+        } catch {
+            $verdict = 'FAILED'
+            $reason = 'success record could not be written: ' + $_.Exception.Message
+            $exitCode = 1
+        }
+    }
+    $line = ('{0}  backup-claude-state {1} ({2}s) {3}' -f $when, $verdict, $elapsed, $reason)
+    try {
+        Add-Content -Path $LogFile -Value $line -Encoding utf8
+    } catch {
+        Write-Info ('WARNING: could not append to ' + $LogFile)
+    }
+    if ($script:RunLockHandle) {
+        try { $script:RunLockHandle.Dispose() } catch { }
+    }
+    exit $exitCode
+}
+$VerifiedCommit = ''
+$VerifiedRef = ''
+
+# Directory names skipped in every copy below. 'worktrees' is a Claude Code
+# git-worktree convention and never backup-worthy; the rest come from the
+# optional machine-local config file, one name per line.
+$excludeDirNames = @('worktrees')
+if (Test-Path $ExcludeDirsFile) {
+    $excludeDirNames += @(Get-Content -Path $ExcludeDirsFile | ForEach-Object { $_.Trim() } | Where-Object {
+        $_ -ne '' -and -not $_.StartsWith('#')
+    })
+}
 
 Write-Info ('Claude home     : {0}' -f $ClaudeHome)
 Write-Info ('Backup repo     : {0}' -f $BackupRepoPath)
@@ -159,10 +262,54 @@ if (-not $backupRepoIsGit) {
     Write-Info ('    git -C "{0}" config user.email "<your email>" # if not already set globally' -f $BackupRepoPath)
     Write-Info 'Then re-run this script.'
     if (-not $DryRun) {
-        exit 1
+        # Through Finish-Run, so a repo that moved or vanished is a FAILED
+        # line the session-start tripwire can read, not a bare exit code.
+        Finish-Run -Verdict 'FAILED' -Reason ('backup repo missing or not a git repo: {0}' -f $BackupRepoPath) -ExitCode 1
     }
     Write-Info ''
     Write-Info '(continuing in DRY RUN to show what the rest of this run would do)'
+}
+
+# ---------------------------------------------------------------------------
+# 0b. One run at a time, and a death notice for a run that never reports.
+#     The daily task and the session-end hook had no lock in common, so two
+#     runs could overlap and commit a half-copied tree. The lock here is a
+#     file handle opened with no sharing: the OS holds it, a run that dies
+#     releases it, and nothing has to guess an age. The 'started' line goes
+#     to the log before any copy, so a run killed mid-way (the hook's time
+#     limit, the task's ExecutionTimeLimit, a power loss) leaves a 'started'
+#     with no verdict after it. That is how the session-start tripwire sees
+#     a kill nobody logged.
+# ---------------------------------------------------------------------------
+if (-not $DryRun) {
+    $runLockPath = Join-Path $ClaudeHome '.state-backup.lock'
+    try {
+        $script:RunLockHandle = [System.IO.File]::Open($runLockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+    } catch [System.IO.IOException] {
+        # Only a sharing violation (32) or a lock violation (33) proves that
+        # another run owns the file. Any other I/O error is this run failing.
+        $win32 = $_.Exception.HResult -band 0xFFFF
+        if ($win32 -eq 32 -or $win32 -eq 33) {
+            Write-Info ('Another backup run holds {0} - this one exits without touching anything.' -f $runLockPath)
+            Finish-Run -Verdict 'busy' -Reason 'another run holds the lock' -ExitCode 0
+        }
+        Finish-Run -Verdict 'FAILED' -Reason ('could not open the run lock: ' + $_.Exception.Message) -ExitCode 1
+    }
+    try {
+        Add-Content -Path $LogFile -Value ('{0}  backup-claude-state started' -f (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')) -Encoding utf8
+    } catch {
+        Write-Info ('WARNING: could not append to ' + $LogFile)
+    }
+}
+
+# From here on, any terminating error becomes a FAILED verdict with the
+# message, instead of a 'started' line with no end: $ErrorActionPreference
+# is Stop, so an ordinary copy error would otherwise end the script with
+# nothing logged until the overdue threshold. An abrupt kill still leaves
+# only 'started'; that is what the overdue rule is for.
+trap {
+    if ($DryRun) { break }
+    Finish-Run -Verdict 'FAILED' -Reason ('exception: ' + $_.Exception.Message) -ExitCode 1
 }
 
 # ---------------------------------------------------------------------------
@@ -179,8 +326,12 @@ if (Test-Path $SourceClaudeMd) {
         Copy-Item -Path $SourceClaudeMd -Destination $destClaudeMd -Force
         Write-Info ('copied {0} -> {1}' -f $SourceClaudeMd, $destClaudeMd)
     }
-} else {
+} elseif ($DryRun) {
     Write-Info ('SKIP - no global CLAUDE.md found at {0}' -f $SourceClaudeMd)
+} else {
+    # A required input. A run that kept yesterday's copy while today's file
+    # is missing would still stamp success.
+    Finish-Run -Verdict 'FAILED' -Reason ('coverage: global CLAUDE.md not found at {0}' -f $SourceClaudeMd) -ExitCode 1
 }
 
 # ---------------------------------------------------------------------------
@@ -188,6 +339,9 @@ if (Test-Path $SourceClaudeMd) {
 # ---------------------------------------------------------------------------
 if (-not (Test-Path $SourceProjectsDir)) {
     Write-Info ('SKIP - no projects directory found at {0}' -f $SourceProjectsDir)
+    if (-not $DryRun) {
+        Finish-Run -Verdict 'FAILED' -Reason ('coverage: projects directory not found at {0}' -f $SourceProjectsDir) -ExitCode 1
+    }
 } else {
     $projectDirs = Get-ChildItem -Path $SourceProjectsDir -Directory
     $copiedCount = 0
@@ -204,7 +358,10 @@ if (-not (Test-Path $SourceProjectsDir)) {
                 Remove-Item -Path $memoryDest -Recurse -Force
             }
             New-Item -ItemType Directory -Path $memoryDest -Force | Out-Null
-            Copy-Item -Path (Join-Path $memorySource '*') -Destination $memoryDest -Recurse -Force
+            # No secret filter here: memory notes are curated by hand and a
+            # false positive would silently drop a note. Directory exclusions
+            # do apply, and every skip is printed.
+            Copy-FilteredTree -Source $memorySource -Destination $memoryDest -SecretPattern '' -ExcludeDirNames $excludeDirNames
             Write-Info ('copied {0} -> {1}' -f $memorySource, $memoryDest)
         }
         $copiedCount = $copiedCount + 1
@@ -234,10 +391,16 @@ if (-not (Test-Path $ExtraPathsFile)) {
     $extraPaths = Get-Content -Path $ExtraPathsFile | Where-Object {
         $_.Trim() -ne '' -and -not $_.Trim().StartsWith('#')
     }
+    $missingExtra = @()
     foreach ($rawPath in $extraPaths) {
         $path = $rawPath.Trim().TrimEnd('\', '/')
         if (-not (Test-Path $path -PathType Container)) {
-            Write-Info ('SKIP - extra path not found (or not a directory): {0}' -f $path)
+            # Listed by hand, so its absence is a coverage failure, not a
+            # skip: a backup that quietly stopped carrying a configured
+            # directory would still stamp success. Reported after the loop
+            # so every missing path is named in one run.
+            Write-Info ('MISSING - configured extra path not found (or not a directory): {0}' -f $path)
+            $missingExtra += $path
             continue
         }
         $leaf = (Split-Path -Leaf $path).TrimStart('.')
@@ -251,8 +414,13 @@ if (-not (Test-Path $ExtraPathsFile)) {
                 Remove-Item -Path $dest -Recurse -Force
             }
             Write-Info ('mirroring {0} -> {1}' -f $path, $dest)
-            Copy-FilteredTree -Source $path -Destination $dest -SecretPattern $secretPattern
+            Copy-FilteredTree -Source $path -Destination $dest -SecretPattern $secretPattern -ExcludeDirNames $excludeDirNames
         }
+    }
+    if ($missingExtra.Count -gt 0 -and -not $DryRun) {
+        Write-Info ''
+        Write-Info ('{0} configured extra path(s) missing - nothing committed. Fix {1} or restore the directory, then re-run.' -f $missingExtra.Count, $ExtraPathsFile)
+        Finish-Run -Verdict 'FAILED' -Reason ('coverage: configured extra path not found: {0}' -f ($missingExtra -join '; ')) -ExitCode 1
     }
 }
 
@@ -281,17 +449,46 @@ if (-not $backupRepoIsGit) {
 
 Push-Location $BackupRepoPath
 try {
+    # A run killed mid-write leaves .git\index.lock behind, and every later
+    # git add fails on it with a generic message. Name the file and its age
+    # instead, so the log line and the session-start tripwire can say what
+    # is wrong. Not removed here: from this side a live git process on the
+    # repo looks the same as a dead one's leftover.
+    $indexLock = Join-Path $BackupRepoPath '.git\index.lock'
+    if (Test-Path $indexLock) {
+        $lockAgeMin = [int]((Get-Date) - (Get-Item $indexLock).LastWriteTime).TotalMinutes
+        Write-Info ''
+        Write-Info ('LOCK PRESENT: {0} ({1} min old). A live git process may own it. If none does, a killed run left it: remove it by hand and re-run.' -f $indexLock, $lockAgeMin)
+        Finish-Run -Verdict 'FAILED' -Reason ('index.lock present, {0} min old: {1}' -f $lockAgeMin, $indexLock) -ExitCode 1
+    }
+
+    # Memory paths can pass 260 characters (a project directory name alone
+    # can run to 150), and without core.longpaths git add fails on them with
+    # "Filename too long". Set once, in the backup repo only, and say so.
+    if ($env:OS -eq 'Windows_NT') {
+        $longPaths = git config --get core.longpaths
+        if ([string]::IsNullOrWhiteSpace($longPaths)) {
+            git config core.longpaths true
+            Write-Info 'set core.longpaths=true in the backup repo'
+        }
+    }
+
     git add -- $trackedPaths
     if ($LASTEXITCODE -ne 0) {
         Write-Info ''
         Write-Info 'git add failed - check git status by hand.'
-        exit 1
+        Finish-Run -Verdict 'FAILED' -Reason 'git add failed; check git status by hand' -ExitCode 1
     }
 
+    $outcome = ''
     $pendingChanges = git status --porcelain -- $trackedPaths
+    if ($LASTEXITCODE -ne 0) {
+        Finish-Run -Verdict 'FAILED' -Reason 'git status failed' -ExitCode 1
+    }
     if ([string]::IsNullOrWhiteSpace($pendingChanges)) {
         Write-Info ''
         Write-Info 'Nothing changed since the last snapshot - no commit made.'
+        $outcome = 'no change'
     } else {
         $dateStamp = Get-Date -Format 'yyyy-MM-dd'
         $commitMessage = 'chore: backup Claude config + memory snapshot ({0})' -f $dateStamp
@@ -299,10 +496,11 @@ try {
         if ($LASTEXITCODE -eq 0) {
             Write-Info ''
             Write-Info ('Committed in {0}: {1}' -f $BackupRepoPath, $commitMessage)
+            $outcome = 'committed'
         } else {
             Write-Info ''
             Write-Info 'git commit failed - check git status by hand.'
-            exit 1
+            Finish-Run -Verdict 'FAILED' -Reason 'git commit failed; check git status by hand' -ExitCode 1
         }
     }
 
@@ -318,14 +516,21 @@ try {
     if ($NoPush) {
         Write-Info ''
         Write-Info '-NoPush given - snapshot committed locally only.'
+        $outcome = $outcome + ', -NoPush: not off-machine, not stamped'
     } else {
         $hasRemote = git remote
         if ([string]::IsNullOrWhiteSpace($hasRemote)) {
             Write-Info ''
-            Write-Info 'No git remote configured - snapshot committed locally only.'
-            Write-Info ('  Add one to make this a real off-machine backup: git -C "{0}" remote add origin <url>' -f $BackupRepoPath)
+            # Deliberate -NoPush is one thing; an unattended run that has no
+            # destination is a failure, whatever git returned.
+            Write-Info 'No git remote configured - snapshot committed locally only, which is NOT a backup.'
+            Write-Info ('  Add one: git -C "{0}" remote add origin <url>' -f $BackupRepoPath)
+            Finish-Run -Verdict 'FAILED' -Reason ('no remote configured; {0} locally only' -f $outcome) -ExitCode 1
         } else {
             $branch = git rev-parse --abbrev-ref HEAD
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($branch)) {
+                Finish-Run -Verdict 'FAILED' -Reason 'could not read the current branch' -ExitCode 1
+            }
             # No 2>&1 here. git writes its progress ("To <url>", "master ->
             # master") to stderr even on success; redirecting a native exe's
             # stderr in PowerShell 5.1 wraps each line in a NativeCommandError
@@ -334,15 +539,45 @@ try {
             # actually worked. Let stderr pass through and judge by exit code.
             git push origin $branch
             if ($LASTEXITCODE -eq 0) {
-                Write-Info ('Pushed {0} to origin.' -f $branch)
+                # A push that returned 0 is git's claim. Ask the remote what it
+                # holds and compare with local HEAD; only a match is a backup.
+                $localHead = git rev-parse HEAD
+                if ($LASTEXITCODE -ne 0 -or $localHead -notmatch '^[0-9a-f]{40}$') {
+                    Finish-Run -Verdict 'FAILED' -Reason 'could not read local HEAD' -ExitCode 1
+                }
+                # The exact ref, and exactly one answer: a short pattern can
+                # match more than one branch.
+                $remoteLines = @(git ls-remote --exit-code origin ('refs/heads/{0}' -f $branch))
+                $remoteHead = ''
+                if ($LASTEXITCODE -eq 0 -and $remoteLines.Count -eq 1) {
+                    $remoteHead = ($remoteLines[0] -split '\s+')[0]
+                }
+                if ($remoteHead -ne $localHead) {
+                    Write-Info ''
+                    Write-Info ('git push returned 0 but origin/{0} is "{1}" and local HEAD is {2} - NOT backed up off-machine.' -f $branch, $remoteHead, $localHead)
+                    Finish-Run -Verdict 'FAILED' -Reason ('verify: origin/{0} is "{1}", local HEAD is {2}' -f $branch, $remoteHead, $localHead) -ExitCode 1
+                }
+                Write-Info ('Pushed {0} to origin; remote head {1} verified.' -f $branch, $remoteHead.Substring(0, 7))
+                $outcome = $outcome + (', pushed {0} ({1})' -f $branch, $remoteHead.Substring(0, 7))
+                $pushed = $true
+                $VerifiedCommit = $remoteHead
+                $VerifiedRef = 'origin/{0}' -f $branch
             } else {
                 Write-Info ''
                 Write-Info ('git push failed - the snapshot is committed locally but NOT backed up off-machine.')
                 Write-Info ('  Retry by hand: git -C "{0}" push origin {1}' -f $BackupRepoPath, $branch)
-                exit 1
+                Finish-Run -Verdict 'FAILED' -Reason ('git push failed; {0} locally, not off-machine' -f $outcome) -ExitCode 1
             }
         }
     }
 } finally {
     Pop-Location
 }
+
+# Only a snapshot that reached the remote counts as a backup, so only that
+# path stamps. A local-only commit is logged as such and leaves the stamp
+# alone; after 48 hours the session-start line says so.
+if ($pushed) {
+    Finish-Run -Verdict 'ok' -Reason $outcome -ExitCode 0 -Stamp
+}
+Finish-Run -Verdict 'ok-local' -Reason $outcome -ExitCode 0

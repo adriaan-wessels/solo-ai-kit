@@ -1221,6 +1221,39 @@ are skipped if nothing changed since the last run). `-BackupRepoPath`
 overrides the default sibling location; `-DryRun` previews without
 touching anything.
 
+Every run writes two lines to `~/.claude/hooks-backup.log`. The first is
+`started`, before the first copy. The second is the verdict (`ok`,
+`ok-local`, `FAILED` or `busy`) with its duration and reason. A run
+stamps `~/.claude/.last-state-backup` only after `git ls-remote` shows
+the pushed commit on the remote. The stamp holds the time, the backup
+repo, the commit and the remote ref. One run holds an OS-level lock for
+the whole transaction, so the daily task and the session-end hook cannot
+overlap. A second launch logs `busy` and exits. A missing required input
+fails the run instead of being skipped. The required inputs are the
+global `CLAUDE.md`, the projects directory, every configured extra path,
+and a remote to push to.
+
+The kit's session-start hook reads the stamp and the log, and puts one
+line into every new session when something is wrong. A failure newer
+than the last verified success is reported at the next session. A retry
+that starts, or a run that stays local, does not clear it. After 30
+minutes without a verdict, a `started` line is reported as interrupted or
+still running. Past 48 hours, the stamp is reported as stale. A stamp that
+does not parse, or is dated in the future, is reported as unknown. Each
+line reports a `.git/index.lock` if the backup repo has one, without
+claiming who owns it, and ends with the next action. An exit code is not
+a monitor until something reads it. On
+the source machine a lock file left by a killed run blocked every commit
+for seven weeks (2026-09-13 to 2026-11-02). In that time 109 failure
+lines accumulated in a log nobody opened.
+
+`~/.claude/backup-exclude-dirs.txt`, one directory name per line, keeps
+folders with those names out of every copy (`worktrees` is always kept
+out). Use it for bulky material that can be made again and that lands
+under a memory folder, such as recorded video. Copying a 650 MiB folder
+on every run pushed the script past the session-end hook's time limit.
+The hook killed it mid-write, and that left the lock.
+
 Treat `claude-state` as private. Do not publish it the way you would
 publish a kit repo built from this one. It is a personal, operational
 backup, not a deliverable.
