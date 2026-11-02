@@ -6,8 +6,10 @@ Thumbs.db
 __pycache__/
 *.pyc
 
-# Personal Claude Code settings and state (not part of the shareable kit)
-.claude/
+# Personal Claude Code settings and state (not part of the shareable kit).
+# The one exception is settings.json, which wires this repo's commit gate.
+.claude/*
+!.claude/settings.json
 
 # Log written if a hook is ever run from the kit source tree (real installs
 # write to the project's git-ignored .claude/state/ instead).
