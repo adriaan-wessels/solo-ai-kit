@@ -1,4 +1,4 @@
-# Shared-folder Communications Protocol (SCP) 1.5.6
+# Shared-folder Communications Protocol (SCP) 1.6.1
 
 **Purpose.** One person runs two AI agents from different products, for example Claude and ChatGPT, on the same
 computer. The person wants the agents to work on something together. Neither product can message the other. Both can
