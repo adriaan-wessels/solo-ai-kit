@@ -158,6 +158,183 @@ function archiveSection(claudeHome) {
   );
 }
 
+// The state backup (scripts/backup-claude-state.ps1) writes one 'started'
+// line and one verdict line per run to <claudeHome>/hooks-backup.log, and
+// stamps <claudeHome>/.last-state-backup only when the snapshot was verified
+// on the remote. Same contract as the archive section above, and found the
+// same way: on the source machine a lock file left by a killed run blocked
+// every commit for seven weeks (2026-09-13 to 2026-11-02). The exit code
+// went to a scheduler nobody opened and 109 failure lines went to a log
+// nobody read. This is the named reader.
+//
+// Four verdicts, in order of urgency. A failure newer than the last success
+// is reported at the NEXT session, not after 48 hours: an age check alone
+// hides a failure from an hour ago behind yesterday's success. A 'started'
+// with no verdict after it, older than BACKUP_ORPHAN_MS, is a run that was
+// killed or hung; nothing else can log a kill. A stamp older than 48 hours
+// is the backstop for runs that never happened. Not adopted (no stamp, no
+// log) is silent. Each line carries the leftover index.lock if the repo
+// named in the stamp has one, so the agent can say what is wrong without
+// opening anything.
+const BACKUP_STALE_MS = 48 * 3.6e6;
+const BACKUP_OVERDUE_MS = 30 * 60 * 1000;
+const BACKUP_SKEW_MS = 5 * 60 * 1000;
+const BACKUP_NEXT = 'Say so in your first message. Then check the scheduled task and run scripts/backup-claude-state.ps1.';
+
+// [{ at, verdict, rest }], oldest first, from the script's own lines only;
+// the hook's FIRED/skipped lines have another shape and are ignored.
+// 'ok-local' is listed before 'ok' and the verdict must end at whitespace or
+// end of line: with a bare \b, 'ok' matched the first two letters of
+// 'ok-local' (reproduced in review, 2026-11-02).
+function backupRuns(log) {
+  const runs = [];
+  let text;
+  try {
+    text = fs.readFileSync(log, 'utf8');
+  } catch {
+    return runs;
+  }
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^(\S+)\s+backup-claude-state (started|trigger-failed|ok-local|ok|FAILED|busy)(?=\s|$)\s*(.*)$/.exec(line);
+    if (!m) continue;
+    const at = Date.parse(m[1]);
+    if (!Number.isFinite(at)) continue;
+    runs.push({ at, verdict: m[2], rest: m[3].trim() });
+  }
+  return runs;
+}
+
+// The success record is trusted only when it parses: a stored time that is
+// a date and not in the future, a repo path, a 40-hex commit and a ref. The
+// STORED time is what counts, not the file's mtime, which a copy or a touch
+// refreshes without any backup having happened.
+function readBackupStamp(stampPath) {
+  let text;
+  try {
+    text = fs.readFileSync(stampPath, 'utf8');
+  } catch {
+    return { state: 'absent' };
+  }
+  const [when = '', repo = '', commit = '', ref = ''] = text.split(/\r?\n/).map((l) => l.trim());
+  const at = Date.parse(when);
+  if (!Number.isFinite(at) || !repo || !/^[0-9a-f]{40}$/i.test(commit) || !ref) return { state: 'malformed' };
+  if (at > Date.now() + BACKUP_SKEW_MS) return { state: 'future', at };
+  return { state: 'ok', at, repo, commit, ref };
+}
+
+function backupSection(claudeHome) {
+  const stampPath = path.join(claudeHome, '.last-state-backup');
+  const log = path.join(claudeHome, 'hooks-backup.log');
+  const stamp = readBackupStamp(stampPath);
+  if (stamp.state === 'absent' && !fs.existsSync(log)) return ''; // backup not adopted here
+
+  const ageText = (ms) => {
+    const hours = Math.floor(ms / 3.6e6);
+    return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+  };
+  const when = (ms) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+
+  if (stamp.state === 'malformed' || stamp.state === 'future') {
+    const why = stamp.state === 'future' ? 'dated in the future' : 'missing fields or unreadable';
+    return `STATE BACKUP UNKNOWN: the success record ${stampPath} is ${why}, so no backup can be trusted from it. ` + BACKUP_NEXT;
+  }
+
+  const verifiedAt = stamp.state === 'ok' ? stamp.at : null;
+  const lastSuccess =
+    verifiedAt === null ? 'No verified success is recorded.' : `Last verified snapshot ${ageText(Date.now() - verifiedAt)} ago.`;
+
+  // Presence, not a diagnosis: a live git process can own this file. Only
+  // the operator can establish that nothing does.
+  let lockNote = '';
+  const lock = stamp.state === 'ok' ? path.join(stamp.repo, '.git', 'index.lock') : '';
+  try {
+    if (lock && fs.existsSync(lock)) {
+      const st = fs.statSync(lock);
+      lockNote =
+        ` ${lock} is present (since ${when(st.mtimeMs)}). A live git process may own it; if none does, a killed run left it, and git add fails until it is removed.`;
+    }
+  } catch {
+    /* the lock is a detail; the verdict is the message */
+  }
+
+  // Every run after the last verified success, in LOG ORDER. The record's
+  // own 'ok' line is located first (same stored time) and the window is
+  // everything after it, so two events in one second keep their order. If
+  // that line is gone (log rotated), the window is strictly later times. A
+  // failure in the window is unresolved until a verified success follows
+  // it: a retry that started, a run that stayed local, a launch that found
+  // the lock busy, or a failed trigger does not clear it. (Reproduced in
+  // review, 2026-11-02, twice: a later 'started' or 'ok-local' erased a
+  // failure; then an equal-second failure was dropped by a '>' filter.)
+  const runs = backupRuns(log).filter((r) => r.verdict !== 'busy');
+  let anchor = -1;
+  if (verifiedAt !== null) {
+    for (let i = runs.length - 1; i >= 0; i--) {
+      if (runs[i].verdict === 'ok' && runs[i].at === verifiedAt) {
+        anchor = i;
+        break;
+      }
+    }
+  }
+  const since = anchor >= 0 ? runs.slice(anchor + 1) : runs.filter((r) => verifiedAt === null || r.at > verifiedAt);
+  const newest = since.length ? since[since.length - 1] : null;
+  const failures = since.filter((r) => r.verdict === 'FAILED' || r.verdict === 'trigger-failed');
+
+  // Serial-run pairing: a 'started' is closed by the next worker verdict
+  // after it. A 'started' followed by another 'started' stays open, because
+  // the first run never reported. (Reproduced in review: a second start
+  // reset the overdue check for an older interrupted run.)
+  const openStarts = [];
+  for (const r of since) {
+    if (r.verdict === 'started') openStarts.push(r);
+    else if (r.verdict === 'ok' || r.verdict === 'ok-local' || r.verdict === 'FAILED') openStarts.pop();
+  }
+
+  if (failures.length) {
+    const f = failures[failures.length - 1];
+    let later = '';
+    if (newest && newest !== f) {
+      const what = newest.verdict === 'started' ? 'started' : `ended ${newest.verdict}`;
+      later = ` A later run ${what} at ${when(newest.at)} and has not verified a snapshot.`;
+    }
+    if (f.verdict === 'trigger-failed') {
+      return (
+        `STATE BACKUP TRIGGER FAILED: the session-end request to start the backup task at ${when(f.at)} did not report success ` +
+        `(${f.rest.slice(0, 160)}); the worker launch is unconfirmed.${later} ` + lastSuccess + lockNote + ' ' + BACKUP_NEXT
+      );
+    }
+    return (
+      `STATE BACKUP FAILED: the run at ${when(f.at)} failed (${f.rest.slice(0, 160)}).${later} ` +
+      lastSuccess + lockNote + ' ' + BACKUP_NEXT
+    );
+  }
+
+  const overdue = openStarts.find((s) => Date.now() - s.at > BACKUP_OVERDUE_MS);
+  if (overdue) {
+    const minutes = Math.floor(BACKUP_OVERDUE_MS / 60000);
+    const more = openStarts.length > 1 ? ` ${openStarts.length} starts have no completion.` : '';
+    return (
+      `STATE BACKUP OVERDUE: a run started at ${when(overdue.at)} and has recorded no completion after ${minutes} minutes, ` +
+      'so it was interrupted or is still running.' + more + ' ' + lastSuccess + lockNote + ' ' + BACKUP_NEXT
+    );
+  }
+
+  if (verifiedAt === null) {
+    return (
+      'STATE BACKUP: runs are on record but no verified success is. ' +
+      `Run scripts/backup-claude-state.ps1 by hand and read ${log}.`
+    );
+  }
+
+  const age = Date.now() - verifiedAt;
+  if (age <= BACKUP_STALE_MS) return '';
+
+  return (
+    `STATE BACKUP STALE: last verified snapshot ${ageText(age)} ago (limit 48h). ` +
+    'Work since then is not confirmed backed up.' + lockNote + ' ' + BACKUP_NEXT
+  );
+}
+
 function probeSection(dir) {
   const probes = path.join(dir, '.claude', 'probes', 'run-all.js');
   if (!fs.existsSync(probes)) return '';
@@ -358,7 +535,7 @@ function build() {
 
 // Importable for the selftest; the hook body runs only when invoked directly.
 if (require.main !== module) {
-  module.exports = { note, probeSection, archiveSection };
+  module.exports = { note, probeSection, archiveSection, backupSection, backupRuns, readBackupStamp };
   return;
 }
 
@@ -400,6 +577,8 @@ try {
   // directory IS the Claude home this hook is running from.
   const archive = archiveSection(path.join(__dirname, '..'));
   if (archive) sections.push(archive);
+  const backup = backupSection(path.join(__dirname, '..'));
+  if (backup) sections.push(backup);
   if (sections.length) process.stdout.write(sections.join('\n\n') + '\n');
 } catch {
   /* never block session start */

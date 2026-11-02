@@ -149,6 +149,19 @@ duplicates.
   a stale verdict as a current one. A harness that cannot run is reported
   rather than skipped: "no probes here" and "the probes are broken" must
   not look the same, or the second hides behind the first indefinitely.
+
+  Two tripwires for stale state run on the same path, outside the cache:
+  the transcript archive (`~/.claude/.last-transcript-archive`) and the
+  state backup (`~/.claude/.last-state-backup`). Each stays silent on a
+  machine that never adopted the mechanism. A scheduled job that stopped
+  looks exactly like one that is fine until something notices it is
+  missing. Session start is the one place where something always reads.
+  The backup line appears at the next session in four cases. A failure
+  is newer than the last verified success, and a retry does not clear
+  it. A run started and recorded no completion. The stamp is older than
+  48 hours. The stamp does not parse or is dated in the future. It
+  reports a `.git/index.lock` if one is present and ends with the next
+  action. The agent can then say what is wrong without opening anything.
 - **`hooks/session-start.selftest.js`**: 16 assertions over that
   annotation. The behaviour is a judgement rather than a fetch, so it is
   testable without the network. `--prove` reintroduces seven real defects
