@@ -203,9 +203,11 @@ function Finish-Run {
             Set-Content -Path $tmp -Value @($when, $BackupRepoPath, $VerifiedCommit, $VerifiedRef) -Encoding utf8
             # Move-Item -Force deletes the target before the move in PS 5.1,
             # so a reader could find no record at all. File.Replace swaps in
-            # place; File.Move covers the first publication.
+            # place; File.Move covers the first publication. The backup path
+            # must be a real null: PowerShell passes $null to a .NET String
+            # parameter as an empty string, which File.Replace rejects.
             if (Test-Path $StampFile) {
-                [System.IO.File]::Replace($tmp, $StampFile, $null)
+                [System.IO.File]::Replace($tmp, $StampFile, [NullString]::Value)
             } else {
                 [System.IO.File]::Move($tmp, $StampFile)
             }
