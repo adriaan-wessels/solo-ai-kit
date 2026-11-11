@@ -202,6 +202,9 @@ duplicates.
   fail-opens, 1 disarm passthrough, 0 overrides. Project-level only. The
   header explains the detection rules, the override, and the SHA-scoped
   commit status that would close the server-side gap.
+
+The mechanical half of the doc style is now a commit gate (`scripts/doc-style-check.js`); a receipt block in approval texts evidences the Humanizer pass.
+
 - **`skills/overnight-review/SKILL.md`**: the "AI-native QA cycle" ceremony
   from the kit README (practice 6). A long, mostly-unattended pass that
   lands safe work, gates on the expensive test layer with flake triage, then
