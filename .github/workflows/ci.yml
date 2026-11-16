@@ -3,14 +3,16 @@
 # The kit tells every new project to gate merges on a green required check
 # (README, practice 5). This is that check, applied to the kit itself.
 #
-# Two things run here, cheapest first:
-#   1. a syntax check over every script the kit ships, and
+# Three things run here, cheapest first:
+#   1. a syntax check over every script the kit ships;
 #   2. the replay harnesses and selftests, which are the only real test
 #      suites here: guardrail.test.js, subagent-stall-check.test.sh,
-#      session-start.selftest.js, pr-merge-gate.test.js and
-#      mutation-clock-check.test.sh. Each JS suite
-#      also runs a --prove pass, which reintroduces real defects and requires
-#      the suite to go red for each: a suite that cannot fail is not evidence.
+#      session-start.selftest.js, pr-merge-gate.test.js,
+#      mutation-clock-check.test.sh and doc-style-check.selftest.js. Each JS
+#      suite also runs a --prove pass. That pass reintroduces real defects
+#      and requires the suite to go red for each one. A suite that cannot
+#      fail is not evidence;
+#   3. the doc-style gate over the lines the change adds.
 #
 # Scope note, kept honest on purpose: this covers claude/ and scripts/ only.
 # templates/ is excluded because those files carry <PLACEHOLDER> markers and
@@ -38,6 +40,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The doc-style step diffs against the base branch.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -133,3 +138,38 @@ jobs:
       # requires the suite to go red for each one.
       - name: PR merge gate harness can fail
         run: node claude/hooks/pr-merge-gate.test.js --prove
+
+      # The doc-style gate (scripts/doc-style-check.js). The commit hook in
+      # .claude/settings.json is the first line. This step is the one a
+      # tired session cannot skip or override, because it runs on the server
+      # and ignores CLAUDE_DOC_STYLE_OVERRIDE.
+      #
+      # It reads the lines this change adds, not every file. About one
+      # sentence in five in the older docs is over 25 words, and
+      # claude/skills/end-session/SKILL.md carries 27 em dashes. A whole-repo
+      # check would be red from birth, and a red check gets disabled
+      # (README, principle 2). Cleaning old debt is separate work.
+      - name: Doc style, lines this change adds
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -eu
+          if [ "$EVENT" = "pull_request" ]; then
+            base="origin/$BASE_REF"
+          else
+            base="$BEFORE"
+          fi
+          git rev-parse --verify --quiet "$base^{commit}" >/dev/null \
+            || { echo "::error::cannot resolve the base '$base'; this check would be vacuous"; exit 1; }
+          node scripts/doc-style-check.js --base "$base"
+
+      - name: Doc-style gate selftest
+        run: node scripts/doc-style-check.selftest.js
+
+      # Same reason as the other selftests: the suite is evidence only if it
+      # can fail. --prove injects one defect per rule and per guard. It
+      # requires the suite to go red for each one.
+      - name: Doc-style gate selftest can fail
+        run: node scripts/doc-style-check.selftest.js --prove
