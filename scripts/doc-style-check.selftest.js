@@ -5,12 +5,12 @@
 //
 // Three layers. Fixtures prove each rule fires and stays quiet on clean
 // text. A temporary git repo proves the scope rule and the commit gate end
-// to end. A control proves the suite looks at sentences at all.
+// to end. Last, a control proves the suite looks at sentences at all.
 //
 // ADVERSARIAL NOTE: a selftest that cannot fail is not evidence. The --prove
 // flag copies the checker, reintroduces one real defect per rule or per
-// guard, and requires this suite to go red for each. A defect the suite
-// misses is printed as NOT CAUGHT and fails the run.
+// guard, and requires this suite to go red for each. Each defect the suite
+// misses appears as NOT CAUGHT and fails the run.
 
 const fs = require('fs');
 const os = require('os');
@@ -42,20 +42,52 @@ if (process.argv.includes('--prove')) {
     ['fenced blocks are read as prose  (-> "a fenced block is skipped")', 'if (fence) continue;', ''],
     ['scope ignored, old debt blocks  (-> "old debt on untouched lines passes")', 'if (!inScope(s.line, s.endLine)) continue;', ''],
     ['scope looks at the first line only  (-> "an edit on a later line of a wrapped sentence")', 'for (let l = a; l <= b; l++) if (scope.has(l)) return true;', 'for (let l = a; l <= a; l++) if (scope.has(l)) return true;'],
-    ['staged mode reads the working tree  (-> "the check reads the index")', "mode === 'staged' ? git(['show', ':' + file], root)", "false ? git(['show', ':' + file], root)"],
+    ['staged mode reads the working tree  (-> "the check reads the index")', "if (mode === 'staged' || mode === 'wide') diff(['--cached'], [], index);", "if (mode === 'staged' || mode === 'wide') diff(['--cached'], [], tree);"],
     ['exit code is always zero  (-> "a hit exits 1")', 'return { code: total ? 1 : 0,', 'return { code: 0,'],
     ['exempt files are read  (-> "exempt prefix is skipped")', "const EXEMPT_PREFIXES = ['shared-folder-communications-protocol/'];", 'const EXEMPT_PREFIXES = [];'],
     ['the skip is silent  (-> "the summary names the skipped files")', 'exempt && exempt.length ?', 'false ?'],
     ['code headers are not read  (-> "a long sentence in a script header")', 'item.header = header && !item.code;', 'item.header = false;'],
     ['whole code files are read  (-> "a body comment is not checked")', 'item.header = header && !item.code;', 'item.header = !item.code;'],
-    ['hook matches quoted text  (-> "a git commit after a quoted semicolon is ignored")', 'const masked = maskQuoted(cmd);', 'const masked = cmd;'],
-    ['hook matches commit-tree  (-> "git commit-tree is not a commit")', 'commit(?![\\w-])/i;', 'commit\\b/i;'],
+    ['hook matches quoted text  (-> "a git commit after a quoted semicolon is ignored")', "return { masked: out.join(''), open: q !== null };", 'return { masked: s, open: false };'],
+    ['hook matches commit-tree  (-> "git commit-tree is not a commit")', "commit(?![\\\\w-])',", "commit\\\\b',"],
     ['hook never denies  (-> "a bad commit is denied")', "permissionDecision: 'deny',", "permissionDecision: 'allow',"],
     ['hook ignores the bash override  (-> "the bash override lets it through")', 'OVERRIDE_BASH_RE.test(cmd) ||', ''],
     ['hook ignores the PowerShell override  (-> "the PowerShell override lets it through")', 'OVERRIDE_PWSH_RE.test(cmd) ||', ''],
-    ['hook misses commit -a  (-> "commit -am checks the working tree")', "if (ch === 'a') return 'worktree';", ''],
+    ['hook ignores the process env override  (-> "the process env override lets it through")', " || process.env.CLAUDE_DOC_STYLE_OVERRIDE === '1';", ';'],
+    ['hook misses commit -a  (-> "commit -am checks the working tree")', "if (ch === 'a') out.all = true;", ''],
+    ['hook misses commit --all  (-> "commit --all checks the working tree")', "if (a === '--all') out.all = true;", "if (a === '--all') out.all = false;"],
     ['fail-open leaves no trace  (-> "a git failure is logged")', "log(slug, 'git commit', why);", ''],
     ['a block leaves no trace  (-> "a block is logged")', "log('blocked', 'git commit',", "void ('blocked', 'git commit',"],
+
+    // The second round. An independent review found that the first suite
+    // shared its author's picture of the hook. Every case staged first, in
+    // the same repo. These defects put those blind spots back.
+    ['the hook reads only the index when the call stages first  (-> "add and commit in one call is denied")', "const wide = staged !== 'none' || own.length > 0 || takes.unsure;", 'const wide = own.length > 0 || takes.unsure;'],
+    ['a commit that names a path is read as an index commit  (-> "a commit that names a path is denied")', "const wide = staged !== 'none' || own.length > 0 || takes.unsure;", "const wide = staged !== 'none' || takes.unsure;"],
+    ['untracked files are not read  (-> "a new file added and committed in one call is denied")', "for (const file of others.split('\\0').filter(Boolean)) take(file, null, tree(file));", ''],
+    ['commit -a reads untracked files  (-> "commit -a does not read an untracked file")', "mode: wide ? 'wide' : takes.all ? 'worktree' : 'staged',", "mode: wide || takes.all ? 'wide' : 'staged',"],
+    ['the paths of git add are ignored  (-> "a path-limited add ignores an unrelated bad file")', 'paths: wide && !everything ? [...paths, ...own] : [],', 'paths: [],'],
+    ['a read-only git command makes the check wide  (-> "git status before a commit keeps the index check")', '} else if (verb && !READ_ONLY.has(verb)) {', '} else if (verb) {'],
+    ['cd is not followed  (-> "a commit after cd into another worktree is denied")', 'dir = target === undefined ? null : toDir(dir, target);', 'dir = cwd;'],
+    ['git -C is not followed  (-> "git -C into another worktree is denied")', "if (w[i] === '-C') at = toDir(at, w[++i] || '');", "if (w[i] === '-C') i++;"],
+    ['an unknown folder is allowed unread  (-> "an unknown folder is read as the folder of the session")', 'for (const p of plans) {', 'for (const p of plans.filter((x) => x.dir !== null)) {'],
+    ['an assumed folder is logged as clean  (-> "an assumed folder is logged as assumed, not as clean")', "const outcome = assumed ? 'open:dir-assumed' :", "const outcome = false ? 'open:dir-assumed' :"],
+    ['the index check is cut down to the added paths  (-> "a staged bad file is read when the call adds another path")', "if (mode === 'staged' || mode === 'wide') diff(['--cached'], [], index);", "if (mode === 'staged' || mode === 'wide') diff(['--cached'], limit, index);"],
+    ['a path is not resolved in its folder  (-> "a path given to git -C add is resolved in that folder")', "return p === null ? null : p.replace(/\\\\/g, '/');", 'return p === null ? null : t;'],
+    ['a brace is not a command start  (-> "the PowerShell if-block commit is denied")', "'(?:^|[;&|(){}", "'(?:^|[;&|"],
+    ['a keyword is not a command start  (-> "a commit in an else branch matches")', 'then|else|elif|do|if|while|until|command|exec|time|env|sudo|nohup', 'never-a-word'],
+    ['git.exe is not git  (-> "git.exe commit matches")', "const GIT = 'git(?:\\\\.exe)?';", "const GIT = 'git';"],
+    ['an unclosed quote hides the commit  (-> "an unclosed quote does not hide the commit")', "const text = info.open || info.masked.includes('<<') ? cmd : info.masked;", 'const text = info.masked;'],
+    ['a backslash escapes a single quote  (-> "a single-quoted path that ends in a backslash closes its quote")', "if (c === q && !(q === '\"' && s[i - 1] === '\\\\')) q = null;", "if (c === q && s[i - 1] !== '\\\\') q = null;"],
+    ['zero files is logged as clean  (-> "an empty index is logged as nothing read, not as clean")', "const outcome = assumed ? 'open:dir-assumed' : result.read ? 'clean' : 'open:nothing-read';", "const outcome = assumed ? 'open:dir-assumed' : 'clean';"],
+    ['zero files is called clean  (-> "a commit of other file types says nothing read")', ": read.size ? 'clean' : 'nothing read';", ": 'clean';"],
+    ['the unread files are not named  (-> "the summary names the files it did not read")', 'const rest = notRead.size ?', 'const rest = false ?'],
+    ['more folders are exempt  (-> "files under claude, templates and scripts are read")', "const EXEMPT_PREFIXES = ['shared-folder-communications-protocol/'];", "const EXEMPT_PREFIXES = ['shared-folder-communications-protocol/', 'claude/', 'templates/', 'scripts/'];"],
+    ['blockquotes are skipped  (-> "a blockquote is read")', "const body = t.replace(/^\\s*>\\s?/, '').trim();", "if (/^\\s*>/.test(t)) continue;\n    const body = t.trim();"],
+    ['the diff prefix is not pinned  (-> "a custom diff prefix does not blind the check")', "'--src-prefix=a/', '--dst-prefix=b/', ", ''],
+    ['--base diffs HEAD against itself  (-> "--base finds a bad sentence on the branch")', "diff([arg + '...HEAD'], [], tree);", "diff(['HEAD...HEAD'], [], tree);"],
+    ['--base reads no files  (-> "--base finds a bad sentence on the branch")', "if (mode === 'base') {", "if (mode === 'never') {"],
+    ['an empty --base diff passes  (-> "--base with an empty diff is a usage error")', "if (o.mode === 'base' && !found.changed) {", 'if (false) {'],
   ];
 
   // The suite spends its time starting processes, so the defects run in
@@ -150,6 +182,7 @@ ok('a code span is one word', !has(lint('a.md', 'Run `' + Array(30).fill('item')
 ok('a fenced block is skipped', !has(lint('a.md', '```\n' + sentence(40) + '\n```\n'), 'long-sentence'));
 ok('a table row is skipped', !has(lint('a.md', '| ' + sentence(40) + ' |\n'), 'long-sentence'));
 ok('a heading is skipped', !has(lint('a.md', '# ' + sentence(40) + '\n'), 'long-sentence'));
+ok('a blockquote is read', has(lint('a.md', '> ' + sentence(30) + '\n'), 'long-sentence'));
 ok('a link counts its text, not its address', !has(lint('a.md', 'See [the page](https://example.com/' + 'x'.repeat(200) + ') for more.\n'), 'long-sentence'));
 ok('CRLF text gives the same answer', has(lint('a.md', (sentence(30) + '\n').replace(/\n/g, '\r\n')), 'long-sentence'));
 
@@ -223,9 +256,18 @@ ok('a quoted boundary does not start a command', !COMMIT_RE.test(maskQuoted('ech
 ok('git log --grep is ignored', !COMMIT_RE.test(maskQuoted('git log --grep="git commit"')));
 ok('git commit-tree is not a commit', !COMMIT_RE.test(maskQuoted('git commit-tree abc123')));
 ok('a leading variable assignment matches', COMMIT_RE.test(maskQuoted('GIT_AUTHOR_DATE=x git commit -m y')));
+ok('a PowerShell if-block commit matches', COMMIT_RE.test(maskQuoted('git add a.md; if ($?) { git commit -m "x" }')));
+ok('a commit in an else branch matches', COMMIT_RE.test(maskQuoted('if git diff --cached --quiet; then echo none; else git commit -m x; fi')));
+ok('a commit in a subshell matches', COMMIT_RE.test(maskQuoted('(git commit -m x)')));
+ok('command git commit matches', COMMIT_RE.test(maskQuoted('command git commit -m x')));
+ok('env with a variable matches', COMMIT_RE.test(maskQuoted('env X=y git commit -m x')));
+ok('git.exe commit matches', COMMIT_RE.test(maskQuoted('git.exe commit -m x')));
+ok('a quoted -c value with a space matches', COMMIT_RE.test(maskQuoted('git -c "user.name=A B" commit -m x')));
+ok('a single-quoted path that ends in a backslash closes its quote', COMMIT_RE.test(maskQuoted("Set-Location 'C:\\repo\\'; git commit -m x")));
+ok('the bare words after echo are ignored', !COMMIT_RE.test(maskQuoted('echo git commit')));
 
 // ---------------------------------------------------------------------------
-// A temporary repo: the scope rule and the commit gate, end to end.
+// A temporary repo for the scope rule and the commit gate, end to end.
 // ---------------------------------------------------------------------------
 
 const env = { ...process.env };
@@ -346,11 +388,27 @@ r = hook(repo, 'CLAUDE_DOC_STYLE_OVERRIDE=1 git commit -m x');
 ok('an inline override prefix still reaches the gate and is logged', decision(r) !== 'deny' && r.stdout.includes('OVERRIDE'), r.stdout + r.stderr);
 r = hook(repo, 'GIT_AUTHOR_NAME=someone git commit -m x');
 ok('a leading variable assignment does not bypass the gate', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, 'git commit -m x', { CLAUDE_DOC_STYLE_OVERRIDE: '1' });
+ok('the process env override lets it through', decision(r) !== 'deny' && r.stdout.includes('OVERRIDE'), r.stdout + r.stderr);
 reset();
 
-r = hook(repo, 'git commit -m x');
-ok('a clean index is allowed', r.stdout === '' && r.status === 0, r.stdout);
-ok('a clean pass is logged', /\|doc-style-gate\|clean\|/.test(logText()), logText());
+// The rows a call adds to the log, so one test cannot pass on an older row.
+const rowsOf = (fn) => {
+  const before = logText().length;
+  const result = fn();
+  return { r: result, rows: logText().slice(before) };
+};
+
+let t = rowsOf(() => hook(repo, 'git commit -m x'));
+ok('an empty index is allowed', t.r.stdout === '' && t.r.status === 0, t.r.stdout);
+ok('an empty index is logged as nothing read, not as clean', /\|open:nothing-read\|/.test(t.rows) && !/\|clean\|/.test(t.rows), t.rows);
+
+write('README.md', baseline + '\nA new clean line.\n');
+git(repo, 'add', 'README.md');
+t = rowsOf(() => hook(repo, 'git commit -m x'));
+ok('a clean staged commit is allowed', t.r.stdout === '' && t.r.status === 0, t.r.stdout);
+ok('a clean pass is logged with the count of files read', /\|doc-style-gate\|clean\|git commit\|doc-style-check: clean \(1 files/.test(t.rows), t.rows);
+reset();
 
 write('README.md', baseline + '\n' + sentence(30) + '\n');
 r = hook(repo, 'git commit -m x');
@@ -359,7 +417,165 @@ r = hook(repo, 'git commit -am x');
 ok('commit -am checks the working tree', decision(r) === 'deny', r.stdout + r.stderr);
 r = hook(repo, 'git commit --all -m x');
 ok('commit --all checks the working tree', decision(r) === 'deny', r.stdout + r.stderr);
+
+// The hook runs before the command. A call that stages and commits in one
+// go shows it an index that does not hold the change yet. The bad line in
+// README.md is still unstaged here.
+console.log('one call that stages and commits');
+r = hook(repo, 'git add README.md && git commit -m x');
+ok('add and commit in one call is denied', decision(r) === 'deny', r.stdout + r.stderr);
+ok('the denial says how to split the call', r.stdout.includes('stage in one call and commit in the next'), r.stdout);
+r = hook(repo, 'git add -A && git commit -m x');
+ok('add -A and commit in one call is denied', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, 'git add .; git commit -m x');
+ok('add . and commit in one call is denied', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, 'git add README.md; if ($?) { git commit -m "x" }');
+ok('the PowerShell if-block commit is denied', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, 'git commit -m x README.md');
+ok('a commit that names a path is denied', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, 'git commit -m x -- README.md');
+ok('a commit that names a path after -- is denied', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, "cat <<'EOF' > note.txt\nit's a note\nEOF\ngit add README.md\ngit commit -m x");
+ok('a commit after a here-document with an apostrophe is denied', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, "echo it's late; git commit -am x");
+ok('an unclosed quote does not hide the commit', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, 'git stash pop && git commit -m x');
+ok('another staging route makes the check read every change', decision(r) === 'deny', r.stdout + r.stderr);
 reset();
+
+write('NEW.md', sentence(30) + '\n');
+r = hook(repo, 'git add NEW.md && git commit -m x');
+ok('a new file added and committed in one call is denied', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, 'git commit -am x');
+ok('commit -a does not read an untracked file', r.stdout === '' && r.status === 0, r.stdout);
+reset();
+
+// Precision. The gate must not block on text the commit leaves out.
+write('README.md', baseline + '\nA new clean line.\n');
+write('OTHER.md', sentence(30) + '\n');
+r = hook(repo, 'git add README.md && git commit -m x');
+ok('a path-limited add ignores an unrelated bad file', r.stdout === '' && r.status === 0, r.stdout);
+git(repo, 'add', 'README.md');
+r = hook(repo, 'git status && git commit -m x');
+ok('git status before a commit keeps the index check', r.stdout === '' && r.status === 0, r.stdout);
+r = hook(repo, 'git commit -m x && git push');
+ok('a push after the commit keeps the index check', r.stdout === '' && r.status === 0, r.stdout);
+reset();
+
+// Two properties the second review found without a test. A wide check must
+// read the whole index, with no cut to the paths of the add. And a path is
+// relative to the folder where its git add runs.
+write('README.md', baseline + '\n' + sentence(30) + '\n');
+git(repo, 'add', 'README.md');
+write('docs/a.md', 'A short clean line.\n');
+r = hook(repo, 'git add docs/a.md && git commit -m x');
+ok('a staged bad file is read when the call adds another path', decision(r) === 'deny', r.stdout + r.stderr);
+reset();
+write('docs/a.md', sentence(30) + '\n');
+r = hook(repo, 'git -C docs add a.md && git commit -m x');
+ok('a path given to git -C add is resolved in that folder', decision(r) === 'deny', r.stdout + r.stderr);
+write('README.md', baseline + '\n' + sentence(30) + '\n');
+write('docs/a.md', 'A short clean line.\n');
+r = hook(repo, 'cd docs && git add ../README.md && git commit -m x');
+ok('a path that climbs out of the folder of cd is resolved', decision(r) === 'deny', r.stdout + r.stderr);
+reset();
+
+// A second worktree. The session sits in the first, the commit runs in the
+// second, and only the second holds the bad line.
+console.log('the folder of the commit');
+const side = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-style-side-'));
+git(repo, 'worktree', 'add', '-q', side, '-b', 'side');
+fs.writeFileSync(path.join(side, 'README.md'), baseline + '\n' + sentence(30) + '\n');
+git(side, 'add', 'README.md');
+const sideSlash = side.replace(/\\/g, '/');
+r = hook(side, 'git commit -m x');
+ok('control: the commit is denied from inside the second worktree', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, 'git commit -m x');
+ok('control: the first worktree has nothing staged', r.stdout === '' && r.status === 0, r.stdout);
+r = hook(repo, 'cd "' + sideSlash + '" && git commit -m x');
+ok('a commit after cd into another worktree is denied', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, 'git -C "' + sideSlash + '" commit -m x');
+ok('git -C into another worktree is denied', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, "Set-Location '" + side + path.sep + "'; git commit -m 'x'");
+ok('Set-Location with a trailing separator is followed', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(repo, 'pushd "' + sideSlash + '"; git commit -m x');
+ok('pushd is followed', decision(r) === 'deny', r.stdout + r.stderr);
+// Git Bash writes drive C as /c. Other systems have one form only.
+const shellForm = process.platform === 'win32' ? '/' + sideSlash[0].toLowerCase() + sideSlash.slice(2) : sideSlash;
+r = hook(repo, 'cd ' + shellForm + ' && git commit -m x');
+ok('a path in the form the shell writes is followed', decision(r) === 'deny', r.stdout + r.stderr);
+// A folder the hook cannot resolve. The hook must read the folder of the
+// session then, and never allow the commit unread. A second review found
+// that the first cut of the fix allowed it. In these cases the session sits
+// in the second worktree, which holds the bad line.
+r = hook(side, 'cd "$PWD" && git commit -m x');
+ok('an unknown folder is read as the folder of the session', decision(r) === 'deny', r.stdout + r.stderr);
+ok('the denial says the folder was assumed', r.stdout.includes('could not tell which folder'), r.stdout);
+r = hook(side, 'cd "$(git rev-parse --show-toplevel)" && git commit -m x');
+ok('a command substitution as the folder is read the same way', decision(r) === 'deny', r.stdout + r.stderr);
+r = hook(side, "git commit -F - <<'EOF'\nfix: docs\n\ncd into the folder first.\nThen git commit again.\nEOF");
+ok('prose in a here-document message cannot switch the gate off', decision(r) === 'deny', r.stdout + r.stderr);
+t = rowsOf(() => hook(repo, 'cd "$SOMEWHERE" && git commit -m x'));
+ok('an assumed folder with no hit is allowed', t.r.stdout === '' && t.r.status === 0, t.r.stdout + t.r.stderr);
+ok('an assumed folder is logged as assumed, not as clean', /\|open:dir-assumed\|/.test(t.rows) && !/\|clean\|/.test(t.rows), t.rows);
+t = rowsOf(() => hook(repo, 'cd "' + sideSlash + '" && popd && git commit -m x'));
+ok('popd makes the folder unknown', /\|open:dir-assumed\|/.test(t.rows), t.rows);
+git(repo, 'worktree', 'remove', '--force', side);
+
+console.log('what the check did not read');
+write('conf.yml', 'key: ' + sentence(40) + '\n');
+git(repo, 'add', 'conf.yml');
+r = cli(repo, '--staged');
+ok('a commit of other file types says nothing read', r.status === 0 && /^doc-style-check: nothing read \(0 files/.test(lastLine(r)), lastLine(r));
+ok('the summary names the files it did not read', lastLine(r).includes('not read: conf.yml'), lastLine(r));
+reset();
+write('notes.txt', sentence(40) + '\n');
+r = cli(repo, 'notes.txt');
+ok('a path of another file type is named as not read', /nothing read/.test(lastLine(r)) && lastLine(r).includes('not read: notes.txt'), lastLine(r));
+reset();
+
+write('claude/notes.md', sentence(30) + '\n');
+write('templates/notes.md', sentence(30) + '\n');
+write('scripts/tool.sh', '#!/usr/bin/env bash\n# ' + sentence(30) + '\n\necho hi\n');
+git(repo, 'add', '-A');
+r = cli(repo, '--staged');
+ok('files under claude, templates and scripts are read', r.status === 1 && ['claude/notes.md:1', 'templates/notes.md:1', 'scripts/tool.sh:2'].every((p) => r.stdout.includes(p)), r.stdout);
+reset();
+
+git(repo, 'config', 'diff.mnemonicPrefix', 'true');
+write('README.md', baseline + '\n' + sentence(30) + '\n');
+git(repo, 'add', 'README.md');
+r = cli(repo, '--staged');
+ok('a custom diff prefix does not blind the check', r.status === 1, r.stdout + r.stderr);
+git(repo, 'config', '--unset', 'diff.mnemonicPrefix');
+reset();
+
+// CI runs --base and nothing else, so this mode needs its own end-to-end
+// cases. The first suite had none.
+console.log('base mode, the one CI runs');
+const first = git(repo, 'rev-parse', 'HEAD').stdout.trim();
+write('README.md', baseline + '\n' + sentence(30) + '\n');
+git(repo, 'commit', '-q', '-am', 'a bad line');
+r = cli(repo, '--base', first);
+ok('--base finds a bad sentence on the branch', r.status === 1 && /^README\.md:10: \[long-sentence\]/m.test(r.stdout), r.stdout + r.stderr);
+write('README.md', baseline + '\nA new clean line.\n');
+git(repo, 'commit', '-q', '-am', 'a clean line');
+r = cli(repo, '--base', first);
+ok('--base passes a clean change and says a file was read', r.status === 0 && /^doc-style-check: clean \(1 files/.test(lastLine(r)), r.stdout + r.stderr);
+r = cli(repo, '--base', 'HEAD');
+ok('--base with an empty diff is a usage error', r.status === 2, r.stdout + r.stderr);
+r = cli(repo, '--base', 'no-such-ref');
+ok('--base with an unknown ref is a usage error', r.status === 2, r.stdout + r.stderr);
+write('conf.yml', 'key: value\n');
+git(repo, 'add', '-A');
+git(repo, 'commit', '-q', '-m', 'yml only');
+r = cli(repo, '--base', 'HEAD~1');
+ok('--base over other file types passes and says nothing read', r.status === 0 && /nothing read/.test(lastLine(r)) && lastLine(r).includes('not read: conf.yml'), r.stdout + r.stderr);
+git(repo, 'rm', '-q', 'conf.yml');
+git(repo, 'commit', '-q', '-m', 'delete only');
+r = cli(repo, '--base', 'HEAD~1');
+ok('--base over a delete-only change is not an empty diff', r.status === 0, r.stdout + r.stderr);
+git(repo, 'reset', '-q', '--hard', first);
 
 const nowhere = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-style-nowhere-'));
 r = hook(nowhere, 'git commit -m x');

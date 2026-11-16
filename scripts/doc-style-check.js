@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // doc-style-check.js
 //
-// A deterministic gate for the kit's house style: ASD-STE100 plus Zinsser.
-// It prints file:line and the offending sentence for each hit. It exits 1 on
-// any hit, 0 when the text is clean, and 2 on a usage error. The last line
-// of output is always one summary line.
+// A deterministic gate for the kit's house style (ASD-STE100 plus Zinsser).
+// It prints file:line and the offending sentence for each hit. The exit code
+// is 1 on any hit, 0 when the text is clean, and 2 on a usage error. One
+// summary line always ends the output.
 //
 // Five rules, each exact and self-contained:
 //
@@ -14,15 +14,15 @@
 //   cleft          "is what" and its kin, as in "X is what made Y".
 //   banned-word    the universal AI markers from the Humanizer skill.
 //
-// What is read. Markdown files are read whole. Fenced blocks, tables,
-// headings and indented code are skipped by every rule except em-dash.
-// Code files (.js, .sh, .ps1) are read for their leading comment block only,
-// plus em-dash in any comment line.
+// What the check reads. It reads markdown files whole. Every rule except
+// em-dash skips fenced blocks, tables, headings and indented code. In code
+// files (.js, .sh, .ps1) it reads only the leading comment block, plus
+// em-dash in any comment line.
 //
-// Scope. Explicit paths and --all are checked whole. The diff modes read
-// the added lines only. A sentence is in scope when any of its lines was
-// added. An edit inside an old long sentence makes you fix that sentence.
-// Old debt on untouched lines never blocks a commit.
+// Scope. With explicit paths or --all, the check reads whole files. The
+// diff modes read the added lines only. A sentence is in scope when the
+// diff adds any of its lines. An edit inside an old long sentence makes you
+// fix that sentence. Old debt on untouched lines never blocks a commit.
 //
 // Usage:
 //   node scripts/doc-style-check.js FILE...      whole files
@@ -34,19 +34,33 @@
 //
 // Add --rules a,b to run only the named rules.
 //
-// The --hook mode denies a `git commit` when the staged check fails. Its
-// override is CLAUDE_DOC_STYLE_OVERRIDE=1, set with `export` or `$env:` in
-// the same call. Every use of it is logged to .claude/state/doc-style-gate.log.
-// CI runs the same check with --base and ignores the override.
+// The --hook mode denies a `git commit` when the check fails. It runs before
+// the command, so it reads what the commit will take. A plain commit takes
+// the index. `git commit -a` takes the tracked changes. A call that stages
+// first, as in `git add FILE && git commit`, takes the paths it names. When
+// the call stages by another route, the hook reads every change in the
+// working tree. `cd` and `git -C` lead the hook to the repo of the commit.
 //
-// Named residuals. The check measures sentences, not meaning. A short bad
-// sentence passes. The hook sees a commit that names paths, or changes
-// directory first, as an index commit. A reader still needs the Humanizer
-// pass for tone, which no pattern can score.
+// The override is CLAUDE_DOC_STYLE_OVERRIDE=1, set with `export` or `$env:`
+// in the same call. Each use leaves a row in
+// .claude/state/doc-style-gate.log. CI runs the same check with --base and
+// ignores the override.
+//
+// The summary line names the exempt files and the files of other types that
+// the check did not read. With no file read, the summary says "nothing read",
+// and the hook logs that row as open:nothing-read. A --base diff with no
+// changed file is a usage error.
+//
+// Named residuals. The check measures sentence shape and ignores meaning, so
+// a short bad sentence passes. One call that writes a file and commits it
+// shows the hook the old text. When the hook cannot resolve the folder of
+// the commit, it reads the folder of the session and logs open:dir-assumed.
+// Tone still needs the Humanizer pass, which no pattern can score.
 
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
@@ -83,7 +97,7 @@ const isExempt = (file) => EXEMPT_PREFIXES.some((p) => file.replace(/\\/g, '/').
 
 // One pass over a code file. Each line is a comment, a blank or code. The
 // leading run of comments and blanks is the header. Any comment line, header
-// or not, is kept for the em-dash rule.
+// or not, goes to the em-dash rule.
 function scanCode(text, kind) {
   const lines = text.split(/\r?\n/);
   const out = [];
@@ -230,8 +244,8 @@ function sub(str, lines, re, fn) {
   return [out, ol];
 }
 
-// Turn one block into sentences. Code spans become one placeholder word and
-// are restored when a sentence is printed.
+// Turn one block into sentences. A code span becomes one placeholder word
+// and comes back when the check prints the sentence.
 function sentencesOf(block) {
   let text = '';
   let lines = [];
@@ -431,54 +445,100 @@ function parseAdded(diff) {
   return out;
 }
 
-// -> {files: [{file, text, scope}], exempt: [path]} for the chosen diff mode.
-function collect(mode, arg, cwd) {
+// Every diff the check reads uses these. They pin the two prefixes, so a
+// user's diff.mnemonicPrefix or diff.dstPrefix cannot blind parseAdded.
+const DIFF_OPTS = ['--unified=0', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', '--diff-filter=ACMR'];
+
+// -> {files: [{file, text, scope}], exempt: [path], unread: [path], changed}
+// for the chosen mode. `wide` is the union of the index, the working tree
+// and the untracked files. The caller can limit its last two parts to
+// `paths`. Only base mode sets `changed`, the number of paths the diff names.
+function collect(mode, arg, cwd, paths) {
   const root = git(['rev-parse', '--show-toplevel'], cwd).trim();
-  const diffArgs = {
-    staged: ['diff', '--cached', '--unified=0', '--no-color', '--diff-filter=ACMR'],
-    worktree: ['diff', 'HEAD', '--unified=0', '--no-color', '--diff-filter=ACMR'],
-    base: ['diff', arg + '...HEAD', '--unified=0', '--no-color', '--diff-filter=ACMR'],
-  }[mode];
-  const added = parseAdded(git(diffArgs, root));
-  const files = [];
-  for (const [file, scope] of added) {
-    if (!kindOf(file) || isExempt(file)) continue;
-    try {
-      const text = mode === 'staged' ? git(['show', ':' + file], root) : fs.readFileSync(path.join(root, file), 'utf8');
-      files.push({ file, text, scope });
-    } catch {
-      /* a file that cannot be read is not in the commit */
+  const limit = paths && paths.length ? ['--', ...paths] : [];
+  const out = { files: [], exempt: [], unread: [], changed: null };
+  const seen = new Set();
+  const take = (file, scope, read) => {
+    if (isExempt(file)) {
+      out.exempt.push(file);
+      return;
     }
+    if (!kindOf(file)) {
+      out.unread.push(file);
+      return;
+    }
+    let text;
+    try {
+      text = read();
+    } catch {
+      out.unread.push(file);
+      return;
+    }
+    const key = [file, scope ? [...scope].join(',') : '*', text].join('\n');
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.files.push({ file, text, scope });
+  };
+  const index = (file) => () => git(['show', ':' + file], root);
+  const tree = (file) => () => fs.readFileSync(path.join(root, file), 'utf8');
+  const diff = (revs, only, reader) => {
+    const added = parseAdded(git(['diff', ...revs, ...DIFF_OPTS, ...only], root));
+    for (const [file, scope] of added) take(file, scope, reader(file));
+  };
+  if (mode === 'staged' || mode === 'wide') diff(['--cached'], [], index);
+  if (mode === 'worktree' || mode === 'wide') diff(['HEAD'], limit, tree);
+  if (mode === 'base') {
+    diff([arg + '...HEAD'], [], tree);
+    out.changed = git(['diff', '--name-only', arg + '...HEAD'], root).split('\n').filter(Boolean).length;
   }
-  return { files, exempt: [...added.keys()].filter(isExempt) };
+  if (mode === 'wide') {
+    const others = git(['ls-files', '--others', '--exclude-standard', '-z', ...limit], root);
+    for (const file of others.split('\0').filter(Boolean)) take(file, null, tree(file));
+  }
+  out.exempt = [...new Set(out.exempt)];
+  out.unread = [...new Set(out.unread)];
+  return out;
 }
 
 // ---------------------------------------------------------------------------
 // Running and reporting
 // ---------------------------------------------------------------------------
 
-function run(files, rules, exempt) {
+function run(files, rules, exempt, unread) {
   const lines = [];
+  const shown = new Set();
   let total = 0;
   let sentences = 0;
   const bad = new Set();
+  const read = new Set();
+  const notRead = new Set(unread || []);
   for (const f of files) {
     const r = lintFile(f.file, f.text, f.scope, rules);
+    if (r.skipped) {
+      notRead.add(f.file);
+      continue;
+    }
+    read.add(f.file);
     sentences += r.count;
     for (const h of r.hits) {
+      const head = `${f.file}:${h.line}: [${h.rule}] ${h.msg}`;
+      // A wide check can read one file twice, from the index and from disk.
+      if (shown.has(head + '\n' + h.sentence)) continue;
+      shown.add(head + '\n' + h.sentence);
       total++;
       bad.add(f.file);
-      lines.push(`${f.file}:${h.line}: [${h.rule}] ${h.msg}`);
+      lines.push(head);
       lines.push(`    ${h.sentence}`);
     }
   }
+  const names = (list) => list.slice(0, 5).join(', ') + (list.length > 5 ? ` and ${list.length - 5} more` : '');
   const skip = exempt && exempt.length ? `; skipped as exempt: ${[...new Set(exempt)].join(', ')}` : '';
-  lines.push(
-    total
-      ? `doc-style-check: ${total} hit(s) in ${bad.size} file(s) (${files.length} files, ${sentences} sentences checked${skip})`
-      : `doc-style-check: clean (${files.length} files, ${sentences} sentences checked${skip})`
-  );
-  return { code: total ? 1 : 0, output: lines.join('\n'), total };
+  const rest = notRead.size ? `; not read: ${names([...notRead])}` : '';
+  const counts = `(${read.size} files, ${sentences} sentences checked${skip}${rest})`;
+  // "clean" is a claim about text the check read. With no file read, say so.
+  const state = total ? `${total} hit(s) in ${bad.size} file(s)` : read.size ? 'clean' : 'nothing read';
+  lines.push(`doc-style-check: ${state} ${counts}`);
+  return { code: total ? 1 : 0, output: lines.join('\n'), total, read: read.size };
 }
 
 function parseArgs(argv) {
@@ -511,43 +571,195 @@ function parseArgs(argv) {
 // The commit gate (PreToolUse adapter)
 // ---------------------------------------------------------------------------
 
+// The hook runs BEFORE the command. It cannot read what the commit holds,
+// because the commit does not exist yet. So it works out from the call what
+// the commit will take. That needs the folder the commit runs in, and what
+// the call stages on the way there. The first version read the index as it
+// stood. It passed `git add FILE && git commit` unread and logged it as clean.
+
+const FILL = '\u0001';
+
 // Blank the quoted spans, keeping the length, so a `git commit` that only
-// appears inside a quoted argument never matches.
-function maskQuoted(s) {
+// appears inside a quoted argument never matches. The fill is not a space,
+// so a quoted argument stays one word. `open` is true when a quote never
+// closes, and then the caller cannot trust the mask.
+function maskInfo(s) {
   const out = s.split('');
   let q = null;
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (q) {
-      out[i] = ' ';
-      if (c === q && s[i - 1] !== '\\') q = null;
+      out[i] = FILL;
+      // A backslash escapes a double quote. Nothing escapes a single quote.
+      if (c === q && !(q === '"' && s[i - 1] === '\\')) q = null;
     } else if (c === '"' || c === "'") {
       q = c;
-      out[i] = ' ';
+      out[i] = FILL;
     }
   }
-  return out.join('');
+  return { masked: out.join(''), open: q !== null };
 }
+const maskQuoted = (s) => maskInfo(s).masked;
 
-const COMMIT_RE = /(?:^|[;&|\r\n])\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*git\s+(?:(?:-C|-c)\s+\S+\s+|--no-pager\s+|--git-dir=\S+\s+|--work-tree=\S+\s+)*commit(?![\w-])/i;
+// Where a command can start. That is the start of the call, or after an
+// operator, a bracket, a brace or a word that takes a command.
+const START = '(?:^|[;&|(){}\\r\\n]|\\b(?:then|else|elif|do|if|while|until|command|exec|time|env|sudo|nohup)\\s)\\s*';
+const ASSIGN = '(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*';
+const GIT = 'git(?:\\.exe)?';
+const COMMIT_RE = new RegExp(
+  START + ASSIGN + GIT + '\\s+(?:(?:-C|-c)\\s+\\S+\\s+|--no-pager\\s+|--git-dir=\\S+\\s+|--work-tree=\\S+\\s+)*commit(?![\\w-])',
+  'i'
+);
+// One event per command that moves the folder or runs git, in call order.
+const EVENT_RE = new RegExp(
+  START + '(?:(cd|chdir|pushd|popd|sl|Set-Location|Push-Location|Pop-Location)(?![\\w-])|' + ASSIGN + GIT + '(?=\\s))',
+  'gi'
+);
+const STOP_RE = /&&|\|\||[;|&)}\r\n]/;
 const OVERRIDE_BASH_RE = /(?:^|[;&|\r\n])\s*(?:export\s+)?CLAUDE_DOC_STYLE_OVERRIDE=1\b/;
 const OVERRIDE_PWSH_RE = /\$env:CLAUDE_DOC_STYLE_OVERRIDE\s*=\s*(['"]?)1\1(?!\d)/i;
 
-// -> 'worktree' when the commit stages tracked changes itself (-a, --all,
-// -am), else 'staged'.
-function commitMode(masked) {
-  const m = masked.match(COMMIT_RE);
-  const tail = masked.slice(m.index + m[0].length).split(/&&|\|\||[;|\r\n]/, 1)[0];
-  for (const tok of tail.trim().split(/\s+/)) {
-    if (tok === '--all') return 'worktree';
-    if (/^-[A-Za-z]+$/.test(tok)) {
-      for (const ch of tok.slice(1)) {
-        if ('mFCct'.includes(ch)) break;
-        if (ch === 'a') return 'worktree';
+// git commands that leave the index alone. Any other verb before the commit
+// counts as staging, and the check goes wide.
+const READ_ONLY = new Set(['status', 'diff', 'log', 'show', 'rev-parse', 'rev-list', 'ls-files', 'fetch', 'push', 'describe', 'blame', 'branch', 'remote', 'config', 'tag']);
+const VALUE_SHORT = 'mFCct';
+const VALUE_LONG = new Set(['--message', '--file', '--reuse-message', '--reedit-message', '--author', '--date', '--template', '--fixup', '--squash', '--cleanup', '--trailer']);
+
+// The words of one simple command, from `from` to the next operator. Each
+// word comes from the real command at the same offsets, so its quotes
+// survive. A redirection ends the words.
+function wordsAt(cmd, text, from) {
+  const rel = text.slice(from).search(STOP_RE);
+  const seg = text.slice(from, rel === -1 ? text.length : from + rel);
+  const out = [];
+  for (const m of seg.matchAll(/\S+/g)) {
+    if (/[<>]/.test(m[0])) break;
+    out.push(cmd.slice(from + m.index, from + m.index + m[0].length));
+  }
+  return out;
+}
+
+// -> the plain text of one shell word, or null when only the shell can say
+// what the word expands to.
+function literal(word) {
+  const m = word.match(/^(['"])([\s\S]*)\1$/);
+  const t = m ? m[2] : word;
+  return /['"`$%]/.test(t) ? null : t;
+}
+
+// -> an absolute path for one shell word, or null. Git Bash writes drive C
+// as /c, and node does not know that form.
+function toPath(base, word) {
+  let t = literal(word);
+  if (t === null || t === '' || base === null) return null;
+  if (t === '~' || /^~[\\/]/.test(t)) t = os.homedir() + t.slice(1);
+  if (process.platform === 'win32') {
+    const drive = t.match(/^\/([A-Za-z])(\/.*)?$/);
+    if (drive) t = drive[1] + ':' + (drive[2] || '/');
+    else if (t.startsWith('/')) return null;
+  }
+  return path.resolve(base, t);
+}
+
+function toDir(base, word) {
+  const p = toPath(base, word);
+  try {
+    return p && fs.statSync(p).isDirectory() ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+// -> a pathspec git can take from any folder, or null when the word is a
+// glob or pathspec magic. null makes the caller read everything.
+function toSpec(base, word) {
+  const t = literal(word);
+  if (t === null || /^:|[*?[]/.test(t)) return null;
+  const p = toPath(base, word);
+  return p === null ? null : p.replace(/\\/g, '/');
+}
+
+// What one `git commit` takes besides the index.
+function commitTakes(args) {
+  const out = { all: false, paths: [], unsure: false };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') {
+      out.paths.push(...args.slice(i + 1));
+      break;
+    }
+    if (a === '--all') out.all = true;
+    else if (/^--(patch|interactive|pathspec-from-file)\b/.test(a)) out.unsure = true;
+    else if (VALUE_LONG.has(a)) i++;
+    else if (/^-[A-Za-z]+$/.test(a)) {
+      for (const ch of a.slice(1)) {
+        if (ch === 'a') out.all = true;
+        if (ch === 'p') out.unsure = true;
+        if (VALUE_SHORT.includes(ch)) {
+          if (ch === a[a.length - 1]) i++;
+          break;
+        }
       }
+    } else if (!a.startsWith('-')) out.paths.push(a);
+  }
+  return out;
+}
+
+// Read the call in order. The result is one plan per `git commit` in it,
+// as {dir, mode, paths}. A null dir means that the hook cannot resolve the
+// folder, and the caller then reads the folder of the session. The mode is
+// staged, worktree or wide (see collect).
+function plansOf(cmd, cwd) {
+  const info = maskInfo(cmd);
+  // An unclosed quote or a here-document can hide a command from the mask.
+  // Then read the raw text. That can only find more commits, never fewer.
+  const text = info.open || info.masked.includes('<<') ? cmd : info.masked;
+  if (!COMMIT_RE.test(text)) return [];
+  const plans = [];
+  const paths = [];
+  let dir = cwd;
+  let staged = 'none'; // what the call stages before the commit: none, paths or all
+  for (const m of text.matchAll(EVENT_RE)) {
+    const w = wordsAt(cmd, text, m.index + m[0].length);
+    if (m[1]) {
+      const target = /^pop/i.test(m[1]) ? undefined : w.find((t) => !t.startsWith('-'));
+      dir = target === undefined ? null : toDir(dir, target);
+      continue;
+    }
+    let at = dir;
+    let i = 0;
+    for (; i < w.length && w[i].startsWith('-'); i++) {
+      if (w[i] === '-C') at = toDir(at, w[++i] || '');
+      else if (w[i] === '-c') i++;
+      else if (/^--(git-dir|work-tree)\b/.test(w[i])) at = null;
+    }
+    const verb = (w[i] || '').toLowerCase();
+    const args = w.slice(i + 1);
+    if (verb === 'commit') {
+      const takes = commitTakes(args);
+      const own = takes.paths.map((p) => toSpec(at, p));
+      const wide = staged !== 'none' || own.length > 0 || takes.unsure;
+      const everything = staged === 'all' || takes.unsure || own.includes(null) || takes.all;
+      plans.push({
+        dir: at,
+        mode: wide ? 'wide' : takes.all ? 'worktree' : 'staged',
+        paths: wide && !everything ? [...paths, ...own] : [],
+      });
+      staged = 'all';
+    } else if (verb === 'add' || verb === 'stage') {
+      const specs = args.filter((a) => a !== '--').map((a) => (a.startsWith('-') ? null : toSpec(at, a)));
+      if (specs.includes(null)) staged = 'all';
+      else if (specs.length && staged !== 'all') {
+        staged = 'paths';
+        paths.push(...specs);
+      }
+    } else if (verb && !READ_ONLY.has(verb)) {
+      staged = 'all';
     }
   }
-  return 'staged';
+  // COMMIT_RE saw a commit that the walk did not. Read everything.
+  if (!plans.length) plans.push({ dir: cwd, mode: 'wide', paths: [] });
+  return plans;
 }
 
 function hookMain() {
@@ -559,10 +771,10 @@ function hookMain() {
   }
   const cmd = input && input.tool_input && input.tool_input.command;
   if (typeof cmd !== 'string' || !/git\b[\s\S]*\bcommit\b/i.test(cmd)) process.exit(0);
-  const masked = maskQuoted(cmd);
-  if (!COMMIT_RE.test(masked)) process.exit(0);
-
   const cwd = input.cwd || process.cwd();
+  const plans = plansOf(cmd, cwd);
+  if (!plans.length) process.exit(0);
+
   const projectDir = process.env.CLAUDE_PROJECT_DIR || cwd;
   const LOG = path.join(projectDir, '.claude', 'state', 'doc-style-gate.log');
   const log = (outcome, label, reason) => {
@@ -580,17 +792,30 @@ function hookMain() {
     process.exit(0);
   };
 
-  let found = null;
+  // A folder the hook cannot resolve, as in `cd "$DIR" && git commit`. The
+  // hook then reads the folder of the session, which is right when the
+  // target is the same repo. An earlier cut of this fix allowed such a commit
+  // unread, and that lost a check the version before it had.
+  const assumed = plans.some((p) => p.dir === null);
+  const found = { files: [], exempt: [], unread: [] };
   try {
-    found = collect(commitMode(masked), null, cwd);
+    for (const p of plans) {
+      const part = collect(p.mode, null, p.dir === null ? cwd : p.dir, p.paths);
+      for (const k of Object.keys(found)) found[k].push(...part[k]);
+    }
   } catch (e) {
     warn('open:git-failed', `Could not read the commit's changes (${String(e.message).split('\n')[0]}).`);
   }
-  const result = run(found.files, null, found.exempt);
+  const result = run(found.files, null, found.exempt, found.unread);
   if (!result.total) {
-    log('clean', 'git commit', result.output.split('\n').pop());
+    // A row that says clean must mean that the check read the text of the
+    // commit and it passed. With an assumed folder that is not certain, so
+    // say so.
+    const outcome = assumed ? 'open:dir-assumed' : result.read ? 'clean' : 'open:nothing-read';
+    log(outcome, 'git commit', result.output.split('\n').pop());
     process.exit(0);
   }
+  const wide = plans.some((p) => p.mode === 'wide');
   const override =
     OVERRIDE_BASH_RE.test(cmd) || OVERRIDE_PWSH_RE.test(cmd) || process.env.CLAUDE_DOC_STYLE_OVERRIDE === '1';
   if (override) {
@@ -607,8 +832,13 @@ function hookMain() {
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
         permissionDecisionReason:
-          `[doc-style-gate] The staged text breaks the kit's house style. Fix every hit, stage again and retry.\n` +
+          `[doc-style-gate] The text of this commit breaks the kit's house style. Fix every hit, stage again and retry.\n` +
           `${result.output}\n` +
+          (wide
+            ? `This call stages and commits in one go, so the gate read every change the commit can take. ` +
+              `If a hit is in a file this commit leaves out, stage in one call and commit in the next.\n`
+            : '') +
+          (assumed ? `The gate could not tell which folder this commit runs in, so it read the folder of the session.\n` : '') +
           `Deliberate override, logged: bash "export CLAUDE_DOC_STYLE_OVERRIDE=1; git commit ..." or PowerShell ` +
           `"$env:CLAUDE_DOC_STYLE_OVERRIDE='1'; git commit ...". CI re-checks the pull request and ignores the override.`,
       },
@@ -619,7 +849,7 @@ function hookMain() {
 
 // ---------------------------------------------------------------------------
 
-module.exports = { lintFile, parseAdded, maskQuoted, commitMode, COMMIT_RE, RULES, EXEMPT_PREFIXES };
+module.exports = { lintFile, parseAdded, maskQuoted, plansOf, COMMIT_RE, RULES, EXEMPT_PREFIXES };
 
 if (require.main === module) {
   const o = parseArgs(process.argv.slice(2));
@@ -630,6 +860,7 @@ if (require.main === module) {
   if (o.mode === 'hook') hookMain();
   let files = [];
   let exempt = [];
+  let unread = [];
   try {
     if (o.mode === 'all') {
       const root = git(['rev-parse', '--show-toplevel'], process.cwd()).trim();
@@ -643,14 +874,21 @@ if (require.main === module) {
         process.exit(2);
       }
     } else if (o.mode) {
-      ({ files, exempt } = collect(o.mode, o.base, process.cwd()));
+      const found = collect(o.mode, o.base, process.cwd());
+      // CI runs this mode. A diff with no changed file means the base is
+      // wrong, and a green result over nothing proves nothing.
+      if (o.mode === 'base' && !found.changed) {
+        console.error(`doc-style-check: --base ${o.base} shows no changed file; a check over nothing proves nothing`);
+        process.exit(2);
+      }
+      ({ files, exempt, unread } = found);
     }
     for (const p of o.paths) files.push({ file: p, text: fs.readFileSync(p, 'utf8'), scope: null });
   } catch (e) {
     console.error('doc-style-check: ' + String(e.message).split('\n')[0]);
     process.exit(2);
   }
-  const r = run(files, o.rules, exempt);
+  const r = run(files, o.rules, exempt, unread);
   console.log(r.output);
   process.exit(r.code);
 }

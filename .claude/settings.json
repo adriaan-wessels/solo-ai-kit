@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node scripts/doc-style-check.js --hook",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/scripts/doc-style-check.js\" --hook",
             "timeout": 15
           }
         ]
